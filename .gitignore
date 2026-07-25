@@ -1,3 +1,4 @@
 *.md
 *.env
 .agents
+coverage.out
