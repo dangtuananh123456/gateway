@@ -1,0 +1,7 @@
+.git
+.agents
+.env
+*.env
+config.yaml
+coverage.out
+*.md
