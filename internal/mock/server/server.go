@@ -21,6 +21,20 @@ type Config struct {
 
 // Run serves requests until the server fails or the context is canceled.
 func Run(ctx context.Context, cfg Config, handler http.Handler) error {
+	listener, err := net.Listen("tcp", cfg.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", cfg.Address, err)
+	}
+
+	return serve(ctx, cfg, handler, listener)
+}
+
+func serve(
+	ctx context.Context,
+	cfg Config,
+	handler http.Handler,
+	listener net.Listener,
+) error {
 	httpServer := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
@@ -28,13 +42,13 @@ func Run(ctx context.Context, cfg Config, handler http.Handler) error {
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 		BaseContext: func(net.Listener) context.Context {
-			return ctx
+			return context.WithoutCancel(ctx)
 		},
 	}
 
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.ListenAndServe()
+		serveErrors <- httpServer.Serve(listener)
 	}()
 
 	select {
