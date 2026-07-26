@@ -1,0 +1,40 @@
+server:
+  address: ":8080"
+  read_header_timeout: 2s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+  upstream_timeout: 3s
+  max_header_bytes: 1048576
+
+auth:
+  issuer: "gateway-demo"
+  audience: "gateway"
+  algorithm: "HS256"
+
+rate_limit:
+  requests_per_second: 100
+  burst: 200
+  key_prefix: "gateway:ratelimit:v1"
+  state_ttl: 15m
+  operation_timeout: 50ms
+
+redis:
+  address: "redis:6379"
+  database: 0
+  pool_size: 200
+  min_idle_connections: 20
+  dial_timeout: 1s
+  read_timeout: 100ms
+  write_timeout: 100ms
+
+routes:
+  - prefix: "/api/users"
+    upstream: "http://mock-users:8081"
+    strip_prefix: "/api/users"
+  - prefix: "/api/orders"
+    upstream: "http://mock-orders:8082"
+    strip_prefix: "/api/orders"
+
+observability:
+  log_level: "info"
+  pprof_enabled: false
