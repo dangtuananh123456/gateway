@@ -2,3 +2,5 @@
 *.env
 .agents
 coverage.out
+/.env
+/config.yaml

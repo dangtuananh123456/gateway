@@ -12,6 +12,11 @@ import (
 )
 
 const (
+	// DefaultConfigPath is the local gateway YAML path.
+	DefaultConfigPath = "config.yaml"
+	// DefaultEnvPath is the local environment file path.
+	DefaultEnvPath = ".env"
+
 	envServerAddress           = "GATEWAY_SERVER_ADDRESS"
 	envServerReadHeaderTimeout = "GATEWAY_SERVER_READ_HEADER_TIMEOUT"
 	envServerIdleTimeout       = "GATEWAY_SERVER_IDLE_TIMEOUT"
@@ -46,8 +51,43 @@ const (
 
 type envLookup func(string) (string, bool)
 
-// Load reads one strict YAML document and applies environment overrides.
-func Load(path string) (Config, error) {
+// Load reads one strict YAML document and applies .env and process overrides.
+func Load(configPath string, envPaths ...string) (Config, error) {
+	return loadFiles(configPath, envPaths, systemEnvironment)
+}
+
+// LoadDefault loads config.yaml and .env from the current working directory.
+func LoadDefault() (Config, error) {
+	return Load(DefaultConfigPath, DefaultEnvPath)
+}
+
+func loadFiles(configPath string, envPaths []string, processEnvironment envLookup) (Config, error) {
+	fileEnvironment, err := readEnvironmentFiles(envPaths...)
+	if err != nil {
+		return Config{}, err
+	}
+
+	lookup := func(key string) (string, bool) {
+		if value, ok := processEnvironment(key); ok {
+			return value, true
+		}
+
+		value, ok := fileEnvironment[key]
+		return value, ok
+	}
+
+	cfg, err := load(configPath, lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, fmt.Errorf("validate config: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func load(path string, lookup envLookup) (Config, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("open config %q: %w", path, err)
@@ -64,7 +104,7 @@ func Load(path string) (Config, error) {
 	if err := requireSingleDocument(decoder); err != nil {
 		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
 	}
-	if err := applyEnvironment(&cfg, os.LookupEnv); err != nil {
+	if err := applyEnvironment(&cfg, lookup); err != nil {
 		return Config{}, err
 	}
 
