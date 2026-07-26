@@ -1,0 +1,38 @@
+services:
+  mock-users:
+    image: gateway-mock-users:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: mock-users
+    environment:
+      MOCK_USERS_ADDRESS: ":8081"
+    ports:
+      - "127.0.0.1:8081:8081"
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+
+  mock-orders:
+    image: gateway-mock-orders:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: mock-orders
+    environment:
+      MOCK_ORDERS_ADDRESS: ":8082"
+    ports:
+      - "127.0.0.1:8082:8082"
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
