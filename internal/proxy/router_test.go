@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dangtuananh123456/gateway/internal/config"
+	"github.com/dangtuananh123456/gateway/pkg/httperror"
 )
 
 func TestRouterPrebuildsProxiesWithOneSharedTransport(t *testing.T) {
@@ -30,7 +32,7 @@ func TestRouterPrebuildsProxiesWithOneSharedTransport(t *testing.T) {
 	}
 	transport := &recordingTransport{}
 
-	router, err := NewRouter(table, transport)
+	router, err := NewRouter(table, transport, time.Second)
 	if err != nil {
 		t.Fatalf("NewRouter(): %v", err)
 	}
@@ -87,7 +89,7 @@ func TestRouterReturnsNotFoundWhenNoRouteMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTable(): %v", err)
 	}
-	router, err := NewRouter(table, &recordingTransport{})
+	router, err := NewRouter(table, &recordingTransport{}, time.Second)
 	if err != nil {
 		t.Fatalf("NewRouter(): %v", err)
 	}
@@ -98,9 +100,13 @@ func TestRouterReturnsNotFoundWhenNoRouteMatches(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "http://gateway.local/not-found", nil),
 	)
 
-	if recorder.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", recorder.Code, http.StatusNotFound)
-	}
+	assertGatewayError(
+		t,
+		recorder,
+		http.StatusNotFound,
+		httperror.CodeRouteNotFound,
+		"route not found",
+	)
 }
 
 func TestNewRouterRejectsMissingDependencies(t *testing.T) {
@@ -114,11 +120,14 @@ func TestNewRouterRejectsMissingDependencies(t *testing.T) {
 		t.Fatalf("NewTable(): %v", err)
 	}
 
-	if _, err := NewRouter(nil, &recordingTransport{}); err == nil {
+	if _, err := NewRouter(nil, &recordingTransport{}, time.Second); err == nil {
 		t.Error("NewRouter(nil, transport) error = nil, want error")
 	}
-	if _, err := NewRouter(table, nil); err == nil {
+	if _, err := NewRouter(table, nil, time.Second); err == nil {
 		t.Error("NewRouter(table, nil) error = nil, want error")
+	}
+	if _, err := NewRouter(table, &recordingTransport{}, 0); err == nil {
+		t.Error("NewRouter(table, transport, 0) error = nil, want error")
 	}
 }
 
