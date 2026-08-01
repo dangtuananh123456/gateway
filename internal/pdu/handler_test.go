@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/dangtuananh123456/gateway/internal/model"
 )
 
 func TestHealth(t *testing.T) {
@@ -18,14 +20,11 @@ func TestHealth(t *testing.T) {
 		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
 	}
 
-	var body struct {
-		InstanceID string `json:"instanceId"`
-		Status     string `json:"status"`
-	}
+	var body model.HealthResponse
 	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 		t.Fatalf("decode health response: %v", err)
 	}
-	if body.InstanceID != "pdu-1" || body.Status != "UP" {
+	if body.InstanceID != "pdu-1" || body.Status != model.ServiceUp {
 		t.Errorf("body = %+v, want instance pdu-1 with UP status", body)
 	}
 }
