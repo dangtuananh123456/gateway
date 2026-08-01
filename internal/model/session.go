@@ -2,6 +2,8 @@
 // Session services.
 package model
 
+import "github.com/dangtuananh123456/gateway/pkg/constants"
+
 // CreateSMContextRequest represents Nsmf_PDUSession_CreateSMContext input.
 // Validation of required fields belongs to the HTTP boundary using this model.
 type CreateSMContextRequest struct {
@@ -20,19 +22,11 @@ type SNSSAI struct {
 	SD  string `json:"sd"`
 }
 
-// SMContextStatus is the lifecycle state returned for an SM context.
-type SMContextStatus string
-
-const (
-	// SMContextActive indicates that the context was created successfully.
-	SMContextActive SMContextStatus = "ACTIVE"
-)
-
 // CreateSMContextResponse is returned after a PDU creates a local context.
 type CreateSMContextResponse struct {
-	SMContextRef string          `json:"smContextRef"`
-	SUPI         string          `json:"supi"`
-	PDUSessionID int             `json:"pduSessionId"`
-	HandledBy    string          `json:"handledBy"`
-	Status       SMContextStatus `json:"status"`
+	SMContextRef string                    `json:"smContextRef"`
+	SUPI         string                    `json:"supi"`
+	PDUSessionID int                       `json:"pduSessionId"`
+	HandledBy    string                    `json:"handledBy"`
+	Status       constants.SMContextStatus `json:"status"`
 }

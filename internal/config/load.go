@@ -11,12 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 	"gopkg.in/yaml.v3"
-)
-
-const (
-	defaultConfigPath = "config.yaml"
-	defaultEnvPath    = ".env"
 )
 
 type envLookup func(string) (string, bool)
@@ -24,8 +20,8 @@ type envLookup func(string) (string, bool)
 // LoadDefault reads CONFIG_PATH and ENV_PATH from the process environment.
 // Missing variables default to config.yaml and .env in the working directory.
 func LoadDefault() (Config, error) {
-	configPath := valueOrDefault(os.Getenv("CONFIG_PATH"), defaultConfigPath)
-	envPath := valueOrDefault(os.Getenv("ENV_PATH"), defaultEnvPath)
+	configPath := valueOrDefault(os.Getenv("CONFIG_PATH"), constants.DefaultConfigPath)
+	envPath := valueOrDefault(os.Getenv("ENV_PATH"), constants.DefaultEnvPath)
 	return Load(configPath, envPath)
 }
 
@@ -207,9 +203,9 @@ func intSetter(destination *int) func(string) error {
 	}
 }
 
-func routingModeSetter(destination *RoutingMode) func(string) error {
+func routingModeSetter(destination *constants.RoutingMode) func(string) error {
 	return func(value string) error {
-		*destination = RoutingMode(value)
+		*destination = constants.RoutingMode(value)
 		return nil
 	}
 }

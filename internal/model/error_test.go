@@ -4,25 +4,27 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 func TestErrorCauseHTTPStatus(t *testing.T) {
 	tests := []struct {
-		cause ErrorCause
+		cause constants.ErrorCause
 		want  int
 	}{
-		{CauseInvalidRequest, http.StatusBadRequest},
-		{CauseNotFound, http.StatusNotFound},
-		{CauseMethodNotAllowed, http.StatusMethodNotAllowed},
-		{CausePayloadTooLarge, http.StatusRequestEntityTooLarge},
-		{CauseUnsupportedMediaType, http.StatusUnsupportedMediaType},
-		{CauseBadGateway, http.StatusBadGateway},
-		{CauseNoBackendAvailable, http.StatusServiceUnavailable},
-		{CauseUpstreamTimeout, http.StatusGatewayTimeout},
+		{constants.CauseInvalidRequest, http.StatusBadRequest},
+		{constants.CauseNotFound, http.StatusNotFound},
+		{constants.CauseMethodNotAllowed, http.StatusMethodNotAllowed},
+		{constants.CausePayloadTooLarge, http.StatusRequestEntityTooLarge},
+		{constants.CauseUnsupportedMediaType, http.StatusUnsupportedMediaType},
+		{constants.CauseBadGateway, http.StatusBadGateway},
+		{constants.CauseNoBackendAvailable, http.StatusServiceUnavailable},
+		{constants.CauseUpstreamTimeout, http.StatusGatewayTimeout},
 	}
 	for _, test := range tests {
 		t.Run(string(test.cause), func(t *testing.T) {
-			if got := test.cause.HTTPStatus(); got != test.want {
+			if got := HTTPStatus(test.cause); got != test.want {
 				t.Errorf("HTTPStatus() = %d, want %d", got, test.want)
 			}
 		})
@@ -30,13 +32,13 @@ func TestErrorCauseHTTPStatus(t *testing.T) {
 }
 
 func TestUnknownErrorCauseIsInternalServerError(t *testing.T) {
-	if got := ErrorCause("UNKNOWN").HTTPStatus(); got != http.StatusInternalServerError {
+	if got := HTTPStatus(constants.ErrorCause("UNKNOWN")); got != http.StatusInternalServerError {
 		t.Errorf("HTTPStatus() = %d, want %d", got, http.StatusInternalServerError)
 	}
 }
 
 func TestErrorResponseJSON(t *testing.T) {
-	response := NewErrorResponse(CauseInvalidRequest, "supi is required")
+	response := NewErrorResponse(constants.CauseInvalidRequest, "supi is required")
 	encoded, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("encode error response: %v", err)
@@ -49,7 +51,7 @@ func TestErrorResponseJSON(t *testing.T) {
 }
 
 func TestNoBackendErrorMatchesRequiredContract(t *testing.T) {
-	response := NewErrorResponse(CauseNoBackendAvailable, "")
+	response := NewErrorResponse(constants.CauseNoBackendAvailable, "")
 	encoded, err := json.Marshal(response)
 	if err != nil {
 		t.Fatalf("encode no-backend response: %v", err)

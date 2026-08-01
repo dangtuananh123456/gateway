@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 func TestServiceResponseJSON(t *testing.T) {
@@ -13,7 +15,7 @@ func TestServiceResponseJSON(t *testing.T) {
 	}{
 		{
 			name:  "health",
-			value: HealthResponse{InstanceID: "pdu-session-1", Status: ServiceUp},
+			value: HealthResponse{InstanceID: "pdu-session-1", Status: constants.ServiceUp},
 			want:  `{"instanceId":"pdu-session-1","status":"UP"}`,
 		},
 		{

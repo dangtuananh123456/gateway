@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dangtuananh123456/gateway/internal/model"
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 func TestHealth(t *testing.T) {
@@ -24,7 +25,7 @@ func TestHealth(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 		t.Fatalf("decode health response: %v", err)
 	}
-	if body.InstanceID != "pdu-1" || body.Status != model.ServiceUp {
+	if body.InstanceID != "pdu-1" || body.Status != constants.ServiceUp {
 		t.Errorf("body = %+v, want instance pdu-1 with UP status", body)
 	}
 }

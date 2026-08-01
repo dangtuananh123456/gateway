@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 func TestCreateSMContextRequestJSON(t *testing.T) {
@@ -47,7 +49,7 @@ func TestCreateSMContextResponseJSON(t *testing.T) {
 		SUPI:         "imsi-452040000000001",
 		PDUSessionID: 1,
 		HandledBy:    "pdu-session-2",
-		Status:       SMContextActive,
+		Status:       constants.SMContextActive,
 	}
 	wantJSON := []byte(`{
   "smContextRef": "http://gw/nsmf-pdusession/v1/sm-contexts/ctx-0001",
