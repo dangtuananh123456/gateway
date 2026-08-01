@@ -10,6 +10,9 @@ services:
       - "127.0.0.1:18080:8080"
     depends_on:
       - pdu-session
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18080
     init: true
     read_only: true
     security_opt:
@@ -31,6 +34,8 @@ services:
         SERVICE: pdu-session
     expose:
       - "8081"
+    environment:
+      CONFIG_PATH: /app/config.yaml
     init: true
     read_only: true
     security_opt:

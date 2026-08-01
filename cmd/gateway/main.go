@@ -8,12 +8,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/config"
 	"github.com/dangtuananh123456/gateway/internal/gateway"
 )
-
-const defaultAddress = ":8080"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -24,6 +22,11 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -33,13 +36,21 @@ func run(logger *slog.Logger) error {
 
 	logger.Info(
 		"gateway starting",
-		"address", defaultAddress,
+		"address", cfg.Gateway.Server.Address,
 		"protocol", "h2c",
+		"routing_mode", cfg.Routing.Mode,
+		"discovery_hostname", cfg.Discovery.Hostname,
 	)
 
 	return gateway.Run(
 		ctx,
-		defaultServerConfig(),
+		gateway.ServerConfig{
+			Address:           cfg.Gateway.Server.Address,
+			ReadHeaderTimeout: cfg.Gateway.Server.ReadHeaderTimeout,
+			IdleTimeout:       cfg.Gateway.Server.IdleTimeout,
+			ShutdownTimeout:   cfg.Gateway.Server.ShutdownTimeout,
+			MaxHeaderBytes:    cfg.Gateway.Server.MaxHeaderBytes,
+		},
 		newHandler(),
 	)
 }
@@ -56,14 +67,4 @@ func newHandler() http.Handler {
 	})
 
 	return mux
-}
-
-func defaultServerConfig() gateway.ServerConfig {
-	return gateway.ServerConfig{
-		Address:           defaultAddress,
-		ReadHeaderTimeout: 2 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		ShutdownTimeout:   10 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
 }

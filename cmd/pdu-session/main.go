@@ -6,12 +6,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/config"
 	"github.com/dangtuananh123456/gateway/internal/pdu"
 )
-
-const defaultAddress = ":8081"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -22,6 +20,11 @@ func main() {
 }
 
 func run(logger *slog.Logger) error {
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -29,25 +32,29 @@ func run(logger *slog.Logger) error {
 	)
 	defer stop()
 
-	instanceID, err := os.Hostname()
-	if err != nil {
-		return err
+	instanceID := cfg.PDU.InstanceID
+	if instanceID == "" {
+		instanceID, err = os.Hostname()
+		if err != nil {
+			return err
+		}
 	}
 
 	logger.Info(
 		"pdu-session starting",
-		"address", defaultAddress,
+		"address", cfg.PDU.Server.Address,
 		"instance_id", instanceID,
+		"weight", cfg.PDU.Weight,
 	)
 
 	return pdu.Run(
 		ctx,
 		pdu.ServerConfig{
-			Address:           defaultAddress,
-			ReadHeaderTimeout: 2 * time.Second,
-			IdleTimeout:       60 * time.Second,
-			ShutdownTimeout:   10 * time.Second,
-			MaxHeaderBytes:    1 << 20,
+			Address:           cfg.PDU.Server.Address,
+			ReadHeaderTimeout: cfg.PDU.Server.ReadHeaderTimeout,
+			IdleTimeout:       cfg.PDU.Server.IdleTimeout,
+			ShutdownTimeout:   cfg.PDU.Server.ShutdownTimeout,
+			MaxHeaderBytes:    cfg.PDU.Server.MaxHeaderBytes,
 		},
 		pdu.NewHandler(instanceID),
 	)

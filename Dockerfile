@@ -26,6 +26,9 @@ RUN case "${SERVICE}" in \
 FROM scratch
 
 COPY --from=builder /out/service /service
+COPY configs/config.yaml /app/config.yaml
+
+WORKDIR /app
 
 USER 65532:65532
 

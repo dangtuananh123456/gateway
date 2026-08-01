@@ -1,0 +1,38 @@
+# Shared Project 2 configuration. Environment variables can override every field.
+gateway:
+  server:
+    address: ":8080"
+    read_header_timeout: 2s
+    idle_timeout: 60s
+    shutdown_timeout: 10s
+    max_header_bytes: 1048576
+  upstream_timeout: 3s
+  public_url: "http://localhost:8080"
+
+pdu:
+  server:
+    address: ":8081"
+    read_header_timeout: 2s
+    idle_timeout: 60s
+    shutdown_timeout: 10s
+    max_header_bytes: 1048576
+  # Empty means that the PDU process uses its container/host name.
+  instance_id: ""
+  weight: 1
+  processing_delay: 0s
+
+routing:
+  # Supported values: round_robin, weighted, load.
+  mode: round_robin
+
+discovery:
+  hostname: pdu-session
+  port: 8081
+  poll_interval: 5s
+  lookup_timeout: 1s
+  health_interval: 5s
+  health_timeout: 1s
+  metrics_interval: 250ms
+  metrics_timeout: 100ms
+  stale_ttl: 15s
+  max_concurrency: 20
