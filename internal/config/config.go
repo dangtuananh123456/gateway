@@ -9,15 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-// RoutingMode identifies the routing algorithm selected at startup.
-type RoutingMode string
-
-const (
-	RoutingRoundRobin RoutingMode = "round_robin"
-	RoutingWeighted   RoutingMode = "weighted"
-	RoutingLoad       RoutingMode = "load"
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 // Config contains all configuration shared by the two Project 2 binaries.
@@ -54,7 +47,7 @@ type PDUConfig struct {
 
 // RoutingConfig selects one routing mode for the Gateway process.
 type RoutingConfig struct {
-	Mode RoutingMode `yaml:"mode"`
+	Mode constants.RoutingMode `yaml:"mode"`
 }
 
 // DiscoveryConfig controls DNS discovery and backend state polling.
@@ -94,11 +87,11 @@ func (cfg Config) Validate() error {
 	}
 
 	switch cfg.Routing.Mode {
-	case RoutingRoundRobin, RoutingWeighted, RoutingLoad:
+	case constants.RoutingRoundRobin, constants.RoutingWeighted, constants.RoutingLoad:
 	default:
 		validationErrors = append(validationErrors, fmt.Errorf(
 			"routing.mode must be one of %q, %q, or %q",
-			RoutingRoundRobin, RoutingWeighted, RoutingLoad,
+			constants.RoutingRoundRobin, constants.RoutingWeighted, constants.RoutingLoad,
 		))
 	}
 

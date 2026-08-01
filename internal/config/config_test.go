@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 const validYAML = `gateway:
@@ -64,7 +66,7 @@ func TestLoad(t *testing.T) {
 	if cfg.PDU.Weight != 3 {
 		t.Errorf("PDU weight = %d, want 3 from dotenv", cfg.PDU.Weight)
 	}
-	if cfg.Routing.Mode != RoutingLoad {
+	if cfg.Routing.Mode != constants.RoutingLoad {
 		t.Errorf("routing mode = %q, want load from process environment", cfg.Routing.Mode)
 	}
 	if cfg.Discovery.MetricsTimeout != 150*time.Millisecond {
@@ -159,7 +161,7 @@ func validConfig() Config {
 			Server: HTTPServerConfig{Address: ":8081", ReadHeaderTimeout: 2 * time.Second, IdleTimeout: time.Minute, ShutdownTimeout: 10 * time.Second, MaxHeaderBytes: 1 << 20},
 			Weight: 1,
 		},
-		Routing: RoutingConfig{Mode: RoutingRoundRobin},
+		Routing: RoutingConfig{Mode: constants.RoutingRoundRobin},
 		Discovery: DiscoveryConfig{
 			Hostname: "pdu-session", Port: 8081, PollInterval: 5 * time.Second,
 			LookupTimeout: time.Second, HealthInterval: 5 * time.Second, HealthTimeout: time.Second,

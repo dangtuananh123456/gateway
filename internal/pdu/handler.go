@@ -3,6 +3,9 @@ package pdu
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/dangtuananh123456/gateway/internal/model"
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 // NewHandler creates the minimal PDU Session HTTP handler used by Docker smoke tests.
@@ -11,9 +14,9 @@ func NewHandler(instanceID string) http.Handler {
 	mux.HandleFunc("GET /health", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(writer).Encode(map[string]string{
-			"instanceId": instanceID,
-			"status":     "UP",
+		_ = json.NewEncoder(writer).Encode(model.HealthResponse{
+			InstanceID: instanceID,
+			Status:     constants.ServiceUp,
 		})
 	})
 

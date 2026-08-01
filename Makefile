@@ -21,10 +21,10 @@ coverage:
 	$(GO) tool cover "-func=$(COVERAGE_FILE)"
 
 fmt:
-	$(GO) run ./scripts/check-format.go -write cmd internal scripts
+	$(GO) run ./scripts/check-format.go -write cmd internal pkg scripts
 
 fmt-check:
-	$(GO) run ./scripts/check-format.go cmd internal scripts
+	$(GO) run ./scripts/check-format.go cmd internal pkg scripts
 
 vet:
 	$(GO) vet ./...
