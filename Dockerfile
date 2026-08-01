@@ -11,11 +11,10 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
-COPY pkg ./pkg
 
 ARG SERVICE
 RUN case "${SERVICE}" in \
-      mock-users|mock-orders) ;; \
+      gateway|pdu-session) ;; \
       *) echo "unsupported SERVICE: ${SERVICE}" >&2; exit 1 ;; \
     esac && \
     CGO_ENABLED=0 GOOS=linux go build \
@@ -29,7 +28,5 @@ FROM scratch
 COPY --from=builder /out/service /service
 
 USER 65532:65532
-
-EXPOSE 8081 8082
 
 ENTRYPOINT ["/service"]

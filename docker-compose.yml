@@ -1,38 +1,41 @@
 services:
-  mock-users:
-    image: gateway-mock-users:local
+  gateway:
+    image: smf-gateway:local
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE: mock-users
-    environment:
-      MOCK_USERS_ADDRESS: ":8081"
+        SERVICE: gateway
     ports:
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      - pdu-session
     init: true
     read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    stop_grace_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
 
-  mock-orders:
-    image: gateway-mock-orders:local
+  pdu-session:
+    image: smf-pdu-session:local
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        SERVICE: mock-orders
-    environment:
-      MOCK_ORDERS_ADDRESS: ":8082"
-    ports:
-      - "127.0.0.1:8082:8082"
+        SERVICE: pdu-session
+    expose:
+      - "8081"
     init: true
     read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    stop_grace_period: 10s
+    deploy:
+      replicas: 3

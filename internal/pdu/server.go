@@ -1,5 +1,4 @@
-// Package server manages the lifecycle of a mock upstream HTTP server.
-package server
+package pdu
 
 import (
 	"context"
@@ -10,8 +9,8 @@ import (
 	"time"
 )
 
-// Config controls a mock upstream HTTP server.
-type Config struct {
+// ServerConfig controls one PDU Session HTTP server lifecycle.
+type ServerConfig struct {
 	Address           string
 	ReadHeaderTimeout time.Duration
 	IdleTimeout       time.Duration
@@ -19,28 +18,22 @@ type Config struct {
 	MaxHeaderBytes    int
 }
 
-// Run serves requests until the server fails or the context is canceled.
-func Run(ctx context.Context, cfg Config, handler http.Handler) error {
-	listener, err := net.Listen("tcp", cfg.Address)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", cfg.Address, err)
+// Run serves HTTP/1.1 requests until the server fails or ctx is canceled.
+func Run(ctx context.Context, cfg ServerConfig, handler http.Handler) error {
+	if handler == nil {
+		return errors.New("run PDU server: handler must not be nil")
 	}
 
-	return serve(ctx, cfg, handler, listener)
-}
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 
-func serve(
-	ctx context.Context,
-	cfg Config,
-	handler http.Handler,
-	listener net.Listener,
-) error {
 	httpServer := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
+		Protocols:         protocols,
 		BaseContext: func(net.Listener) context.Context {
 			return context.WithoutCancel(ctx)
 		},
@@ -48,7 +41,7 @@ func serve(
 
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.Serve(listener)
+		serveErrors <- httpServer.ListenAndServe()
 	}()
 
 	select {
@@ -64,7 +57,7 @@ func serve(
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			_ = httpServer.Close()
 			<-serveErrors
-			return fmt.Errorf("shutdown HTTP server: %w", err)
+			return fmt.Errorf("shutdown PDU HTTP server: %w", err)
 		}
 
 		return normalizeServeError(<-serveErrors)
@@ -76,5 +69,5 @@ func normalizeServeError(err error) error {
 		return nil
 	}
 
-	return fmt.Errorf("serve HTTP: %w", err)
+	return fmt.Errorf("serve PDU HTTP: %w", err)
 }
