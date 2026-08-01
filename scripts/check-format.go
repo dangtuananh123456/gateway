@@ -57,6 +57,7 @@ func walk(root string, write bool, unformatted *bool) error {
 		if err != nil {
 			return fmt.Errorf("format %s: %w", path, err)
 		}
+		formatted = preserveLineEndings(source, formatted)
 		if bytes.Equal(source, formatted) {
 			return nil
 		}
@@ -77,4 +78,12 @@ func walk(root string, write bool, unformatted *bool) error {
 
 		return nil
 	})
+}
+
+func preserveLineEndings(source []byte, formatted []byte) []byte {
+	if bytes.Contains(source, []byte("\r\n")) {
+		return bytes.ReplaceAll(formatted, []byte("\n"), []byte("\r\n"))
+	}
+
+	return formatted
 }
