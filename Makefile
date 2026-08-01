@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check docker-up
+.PHONY: build test race bench coverage fmt fmt-check vet lint check docker-up docker-ps docker-smoke docker-down
 
 build:
 	$(GO) build ./...
@@ -35,3 +35,12 @@ check: lint test
 
 docker-up:
 	$(COMPOSE) up --build -d
+
+docker-ps:
+	$(COMPOSE) ps
+
+docker-smoke:
+	$(GO) run ./scripts/h2c-smoke.go
+
+docker-down:
+	$(COMPOSE) down
