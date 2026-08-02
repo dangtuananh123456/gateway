@@ -16,6 +16,7 @@ import (
 // HandlerConfig contains the PDU identity and create-session behavior.
 type HandlerConfig struct {
 	InstanceID       string
+	Weight           int
 	PublicGatewayURL string
 	ProcessingDelay  time.Duration
 }
@@ -27,6 +28,7 @@ type sessionCreator interface {
 // Handler owns the PDU HTTP routes and node-local active request counter.
 type Handler struct {
 	instanceID       string
+	weight           int
 	contextRefPrefix string
 	processingDelay  time.Duration
 	sessions         sessionCreator
@@ -41,6 +43,9 @@ func NewHandler(cfg HandlerConfig, sessions sessionCreator) (*Handler, error) {
 	if strings.TrimSpace(cfg.InstanceID) == "" {
 		return nil, errors.New("create PDU handler: instance ID must not be empty")
 	}
+	if cfg.Weight <= 0 {
+		return nil, errors.New("create PDU handler: weight must be greater than zero")
+	}
 	if strings.TrimSpace(cfg.PublicGatewayURL) == "" {
 		return nil, errors.New("create PDU handler: public Gateway URL must not be empty")
 	}
@@ -50,6 +55,7 @@ func NewHandler(cfg HandlerConfig, sessions sessionCreator) (*Handler, error) {
 
 	return &Handler{
 		instanceID:       cfg.InstanceID,
+		weight:           cfg.Weight,
 		contextRefPrefix: strings.TrimSuffix(cfg.PublicGatewayURL, "/") + constants.CreateSMContextPath + "/",
 		processingDelay:  cfg.ProcessingDelay,
 		sessions:         sessions,
@@ -66,6 +72,12 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.handleHealth(writer)
+	case constants.MetricsPath:
+		if request.Method != http.MethodGet {
+			handler.writeMethodNotAllowed(writer, http.MethodGet)
+			return
+		}
+		handler.handleMetrics(writer)
 	case constants.CreateSMContextPath:
 		if request.Method != http.MethodPost {
 			handler.writeMethodNotAllowed(writer, http.MethodPost)
@@ -85,6 +97,14 @@ func (handler *Handler) handleHealth(writer http.ResponseWriter) {
 	writeJSON(writer, http.StatusOK, model.HealthResponse{
 		InstanceID: handler.instanceID,
 		Status:     constants.ServiceUp,
+	})
+}
+
+func (handler *Handler) handleMetrics(writer http.ResponseWriter) {
+	writeJSON(writer, http.StatusOK, model.MetricsResponse{
+		InstanceID:     handler.instanceID,
+		Weight:         handler.weight,
+		ActiveRequests: handler.activeRequests.Load(),
 	})
 }
 
