@@ -36,6 +36,7 @@ services:
       - "8081"
     environment:
       CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18080
     init: true
     read_only: true
     security_opt:

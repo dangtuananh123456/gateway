@@ -11,6 +11,7 @@ RUN go mod download
 
 COPY cmd ./cmd
 COPY internal ./internal
+COPY pkg ./pkg
 
 ARG SERVICE
 RUN case "${SERVICE}" in \

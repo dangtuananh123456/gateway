@@ -9,6 +9,7 @@ import (
 
 	"github.com/dangtuananh123456/gateway/internal/config"
 	"github.com/dangtuananh123456/gateway/internal/pdu"
+	"github.com/dangtuananh123456/gateway/internal/store"
 )
 
 func main() {
@@ -46,6 +47,17 @@ func run(logger *slog.Logger) error {
 		"instance_id", instanceID,
 		"weight", cfg.PDU.Weight,
 	)
+	handler, err := pdu.NewHandler(
+		pdu.HandlerConfig{
+			InstanceID:       instanceID,
+			PublicGatewayURL: cfg.Gateway.PublicURL,
+			ProcessingDelay:  cfg.PDU.ProcessingDelay,
+		},
+		store.NewLocal(),
+	)
+	if err != nil {
+		return err
+	}
 
 	return pdu.Run(
 		ctx,
@@ -56,6 +68,6 @@ func run(logger *slog.Logger) error {
 			ShutdownTimeout:   cfg.PDU.Server.ShutdownTimeout,
 			MaxHeaderBytes:    cfg.PDU.Server.MaxHeaderBytes,
 		},
-		pdu.NewHandler(instanceID),
+		handler,
 	)
 }
