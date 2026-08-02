@@ -37,6 +37,48 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestMetrics(t *testing.T) {
+	handler := newTestHandler(t, store.NewLocal(), 0)
+	recorder := serveMetrics(handler)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
+	}
+	metrics := decodeMetrics(t, recorder)
+	if metrics.InstanceID != "pdu-session-1" || metrics.Weight != 3 || metrics.ActiveRequests != 0 {
+		t.Errorf("metrics = %+v, want pdu-session-1 weight 3 and 0 active requests", metrics)
+	}
+}
+
+func TestMetricsReflectsActiveCreateRequest(t *testing.T) {
+	handler := newTestHandler(t, store.NewLocal(), time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	request := createRequest(t, ctx, validCreateSMContextRequest())
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		close(done)
+	}()
+
+	waitForActiveRequests(t, handler, 1)
+	metrics := decodeMetrics(t, serveMetrics(handler))
+	if metrics.ActiveRequests != 1 {
+		t.Errorf("active requests = %d, want 1 while Create is processing", metrics.ActiveRequests)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Create handler did not stop after cancellation")
+	}
+	metrics = decodeMetrics(t, serveMetrics(handler))
+	if metrics.ActiveRequests != 0 {
+		t.Errorf("active requests = %d, want 0 after Create stopped", metrics.ActiveRequests)
+	}
+}
+
 func TestCreateSMContext(t *testing.T) {
 	local := store.NewLocal()
 	handler := newTestHandler(t, local, 0)
@@ -171,6 +213,7 @@ func TestHandlerFailureContract(t *testing.T) {
 	}{
 		{name: "create method", method: http.MethodGet, path: constants.CreateSMContextPath, wantStatus: http.StatusMethodNotAllowed, wantCause: constants.CauseMethodNotAllowed, wantAllowed: http.MethodPost},
 		{name: "health method", method: http.MethodPost, path: constants.HealthPath, wantStatus: http.StatusMethodNotAllowed, wantCause: constants.CauseMethodNotAllowed, wantAllowed: http.MethodGet},
+		{name: "metrics method", method: http.MethodPost, path: constants.MetricsPath, wantStatus: http.StatusMethodNotAllowed, wantCause: constants.CauseMethodNotAllowed, wantAllowed: http.MethodGet},
 		{name: "not found", method: http.MethodGet, path: "/missing", wantStatus: http.StatusNotFound, wantCause: constants.CauseNotFound},
 	}
 	for _, test := range tests {
@@ -193,8 +236,9 @@ func TestNewHandlerValidation(t *testing.T) {
 	}{
 		{name: "nil store", config: validHandlerConfig()},
 		{name: "empty instance", config: HandlerConfig{PublicGatewayURL: "http://gateway"}, sessions: store.NewLocal()},
-		{name: "empty public URL", config: HandlerConfig{InstanceID: "pdu-1"}, sessions: store.NewLocal()},
-		{name: "negative delay", config: HandlerConfig{InstanceID: "pdu-1", PublicGatewayURL: "http://gateway", ProcessingDelay: -time.Second}, sessions: store.NewLocal()},
+		{name: "invalid weight", config: HandlerConfig{InstanceID: "pdu-1", PublicGatewayURL: "http://gateway"}, sessions: store.NewLocal()},
+		{name: "empty public URL", config: HandlerConfig{InstanceID: "pdu-1", Weight: 1}, sessions: store.NewLocal()},
+		{name: "negative delay", config: HandlerConfig{InstanceID: "pdu-1", Weight: 1, PublicGatewayURL: "http://gateway", ProcessingDelay: -time.Second}, sessions: store.NewLocal()},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -232,7 +276,41 @@ func newTestHandler(t *testing.T, sessions sessionCreator, delay time.Duration) 
 func validHandlerConfig() HandlerConfig {
 	return HandlerConfig{
 		InstanceID:       "pdu-session-1",
+		Weight:           3,
 		PublicGatewayURL: "http://localhost:18080",
+	}
+}
+
+func serveMetrics(handler http.Handler) *httptest.ResponseRecorder {
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, constants.MetricsPath, nil),
+	)
+	return recorder
+}
+
+func decodeMetrics(t *testing.T, recorder *httptest.ResponseRecorder) model.MetricsResponse {
+	t.Helper()
+	var metrics model.MetricsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&metrics); err != nil {
+		t.Fatalf("decode metrics response: %v", err)
+	}
+	return metrics
+}
+
+func waitForActiveRequests(t *testing.T, handler *Handler, want int64) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for handler.activeRequests.Load() != want {
+		select {
+		case <-deadline.C:
+			t.Fatalf("active requests did not become %d", want)
+		case <-ticker.C:
+		}
 	}
 }
 

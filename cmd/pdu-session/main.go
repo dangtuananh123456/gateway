@@ -50,6 +50,7 @@ func run(logger *slog.Logger) error {
 	handler, err := pdu.NewHandler(
 		pdu.HandlerConfig{
 			InstanceID:       instanceID,
+			Weight:           cfg.PDU.Weight,
 			PublicGatewayURL: cfg.Gateway.PublicURL,
 			ProcessingDelay:  cfg.PDU.ProcessingDelay,
 		},
