@@ -25,6 +25,7 @@ const (
 	CauseMethodNotAllowed     ErrorCause = "METHOD_NOT_ALLOWED"
 	CausePayloadTooLarge      ErrorCause = "PAYLOAD_TOO_LARGE"
 	CauseUnsupportedMediaType ErrorCause = "UNSUPPORTED_MEDIA_TYPE"
+	CauseInternalError        ErrorCause = "INTERNAL_ERROR"
 	CauseBadGateway           ErrorCause = "BAD_GATEWAY"
 	CauseNoBackendAvailable   ErrorCause = "NO_BACKEND_AVAILABLE"
 	CauseUpstreamTimeout      ErrorCause = "UPSTREAM_TIMEOUT"

@@ -37,6 +37,8 @@ func HTTPStatus(cause constants.ErrorCause) int {
 		return http.StatusRequestEntityTooLarge
 	case constants.CauseUnsupportedMediaType:
 		return http.StatusUnsupportedMediaType
+	case constants.CauseInternalError:
+		return http.StatusInternalServerError
 	case constants.CauseBadGateway:
 		return http.StatusBadGateway
 	case constants.CauseNoBackendAvailable:

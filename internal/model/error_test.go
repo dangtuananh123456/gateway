@@ -18,6 +18,7 @@ func TestErrorCauseHTTPStatus(t *testing.T) {
 		{constants.CauseMethodNotAllowed, http.StatusMethodNotAllowed},
 		{constants.CausePayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{constants.CauseUnsupportedMediaType, http.StatusUnsupportedMediaType},
+		{constants.CauseInternalError, http.StatusInternalServerError},
 		{constants.CauseBadGateway, http.StatusBadGateway},
 		{constants.CauseNoBackendAvailable, http.StatusServiceUnavailable},
 		{constants.CauseUpstreamTimeout, http.StatusGatewayTimeout},
