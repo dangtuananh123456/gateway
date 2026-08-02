@@ -24,6 +24,20 @@ func Run(ctx context.Context, cfg ServerConfig, handler http.Handler) error {
 		return errors.New("run PDU server: handler must not be nil")
 	}
 
+	listener, err := net.Listen("tcp", cfg.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", cfg.Address, err)
+	}
+
+	return serve(ctx, cfg, handler, listener)
+}
+
+func serve(
+	ctx context.Context,
+	cfg ServerConfig,
+	handler http.Handler,
+	listener net.Listener,
+) error {
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 
@@ -41,7 +55,7 @@ func Run(ctx context.Context, cfg ServerConfig, handler http.Handler) error {
 
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.ListenAndServe()
+		serveErrors <- httpServer.Serve(listener)
 	}()
 
 	select {
