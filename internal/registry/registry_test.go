@@ -333,6 +333,88 @@ func TestRegistryConcurrentReadWrite(t *testing.T) {
 	}
 }
 
+func TestAtomicSnapshotNeverExposesPartialUpdate(t *testing.T) {
+	registry := New()
+	address := netip.MustParseAddrPort("10.0.0.1:8081")
+	base := testTime()
+	if _, err := registry.Upsert(address, base); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	states := []Metadata{
+		{InstanceID: "pdu-a", Weight: 1, ActiveRequests: 11},
+		{InstanceID: "pdu-b", Weight: 2, ActiveRequests: 22},
+	}
+	if err := registry.MarkHealthy(address, states[0], base.Add(time.Second)); err != nil {
+		t.Fatalf("initial MarkHealthy() error = %v", err)
+	}
+
+	const iterations = 2_000
+	errorsFound := make(chan error, 16)
+	var readers sync.WaitGroup
+	readers.Add(8)
+	for range 8 {
+		go func() {
+			defer readers.Done()
+			for range iterations {
+				snapshot := registry.HealthySnapshot()
+				instance, found := snapshot.At(0)
+				if snapshot.Len() != 1 || !found {
+					errorsFound <- fmt.Errorf("snapshot length = %d, want 1", snapshot.Len())
+					return
+				}
+				validA := instance.InstanceID == "pdu-a" && instance.Weight == 1 && instance.ActiveRequests == 11
+				validB := instance.InstanceID == "pdu-b" && instance.Weight == 2 && instance.ActiveRequests == 22
+				if !validA && !validB {
+					errorsFound <- fmt.Errorf("partial snapshot observed: %+v", instance)
+					return
+				}
+			}
+		}()
+	}
+	for iteration := range iterations {
+		if err := registry.MarkHealthy(
+			address,
+			states[iteration%len(states)],
+			base.Add(time.Second+time.Duration(iteration+1)*time.Nanosecond),
+		); err != nil {
+			t.Fatalf("MarkHealthy() error = %v", err)
+		}
+	}
+	readers.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		t.Error(err)
+	}
+}
+
+func TestAtomicSnapshotPublishesMembershipChanges(t *testing.T) {
+	registry := New()
+	base := testTime()
+	first := netip.MustParseAddrPort("10.0.0.1:8081")
+	second := netip.MustParseAddrPort("10.0.0.2:8081")
+	for index, address := range []netip.AddrPort{second, first} {
+		if _, err := registry.Upsert(address, base); err != nil {
+			t.Fatalf("Upsert(%s) error = %v", address, err)
+		}
+		if err := registry.MarkHealthy(address, Metadata{
+			InstanceID: fmt.Sprintf("pdu-%d", 2-index), Weight: index + 1,
+		}, base.Add(time.Duration(index+1)*time.Second)); err != nil {
+			t.Fatalf("MarkHealthy(%s) error = %v", address, err)
+		}
+	}
+	if got := registry.HealthySnapshot().All(); len(got) != 2 || got[0].InstanceID != "pdu-1" || got[1].InstanceID != "pdu-2" {
+		t.Fatalf("sorted snapshot = %+v, want pdu-1 then pdu-2", got)
+	}
+	if !registry.Remove(first) {
+		t.Fatal("Remove(first) = false, want true")
+	}
+	snapshot := registry.HealthySnapshot()
+	remaining, found := snapshot.At(0)
+	if snapshot.Len() != 1 || !found || remaining.Address != second {
+		t.Errorf("snapshot after remove = %+v, want only %s", snapshot.All(), second)
+	}
+}
+
 func testAddress(index int) netip.AddrPort {
 	address := netip.AddrFrom4([4]byte{10, byte(index >> 8), byte(index), 1})
 	return netip.AddrPortFrom(address, 8081)
