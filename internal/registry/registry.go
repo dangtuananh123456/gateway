@@ -20,15 +20,18 @@ var (
 
 // Candidate contains all mutable discovery and observation state for one address.
 type Candidate struct {
-	Address        netip.AddrPort
-	Healthy        bool
-	InstanceID     string
-	Weight         int
-	ActiveRequests int64
-	DiscoveredAt   time.Time
-	LastSeenAt     time.Time
-	LastSuccessAt  time.Time
-	LastFailureAt  time.Time
+	Address              netip.AddrPort
+	Healthy              bool
+	InstanceID           string
+	Weight               int
+	ActiveRequests       int64
+	DiscoveredAt         time.Time
+	LastSeenAt           time.Time
+	LastSuccessAt        time.Time
+	LastHealthSuccessAt  time.Time
+	LastMetricsSuccessAt time.Time
+	LastIdentityAt       time.Time
+	LastFailureAt        time.Time
 }
 
 // Metadata is the health and load state collected from one PDU instance.
@@ -108,6 +111,83 @@ func (registry *Registry) MarkHealthy(
 	candidate.Weight = metadata.Weight
 	candidate.ActiveRequests = metadata.ActiveRequests
 	candidate.LastSuccessAt = observedAt
+	candidate.LastHealthSuccessAt = observedAt
+	candidate.LastMetricsSuccessAt = observedAt
+	candidate.LastIdentityAt = observedAt
+	registry.candidates[address] = candidate
+	return nil
+}
+
+// MarkHealthSuccess records a successful health probe. A new or changed
+// identity must also publish matching metrics before it becomes routable.
+func (registry *Registry) MarkHealthSuccess(
+	address netip.AddrPort,
+	instanceID string,
+	observedAt time.Time,
+) error {
+	if err := validateIdentity(instanceID, observedAt); err != nil {
+		return err
+	}
+
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	candidate, found := registry.candidates[address]
+	if !found {
+		return fmt.Errorf("%w: %s", ErrCandidateNotFound, address)
+	}
+	if observedAt.Before(candidate.LastHealthSuccessAt) ||
+		(instanceID != candidate.InstanceID && observedAt.Before(candidate.LastIdentityAt)) {
+		return nil
+	}
+	if candidate.InstanceID != instanceID {
+		candidate.InstanceID = instanceID
+		candidate.Weight = 0
+		candidate.ActiveRequests = 0
+		candidate.LastMetricsSuccessAt = time.Time{}
+		candidate.LastIdentityAt = observedAt
+	}
+	candidate.Healthy = true
+	candidate.LastHealthSuccessAt = observedAt
+	if observedAt.After(candidate.LastSuccessAt) {
+		candidate.LastSuccessAt = observedAt
+	}
+	registry.candidates[address] = candidate
+	return nil
+}
+
+// MarkMetricsSuccess refreshes the cached weight and load. Metrics alone do
+// not make a candidate healthy; a matching health probe is also required.
+func (registry *Registry) MarkMetricsSuccess(
+	address netip.AddrPort,
+	metadata Metadata,
+	observedAt time.Time,
+) error {
+	if err := validateMetadata(metadata, observedAt); err != nil {
+		return err
+	}
+
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	candidate, found := registry.candidates[address]
+	if !found {
+		return fmt.Errorf("%w: %s", ErrCandidateNotFound, address)
+	}
+	if observedAt.Before(candidate.LastMetricsSuccessAt) ||
+		(metadata.InstanceID != candidate.InstanceID && observedAt.Before(candidate.LastIdentityAt)) {
+		return nil
+	}
+	if candidate.InstanceID != metadata.InstanceID {
+		candidate.Healthy = false
+		candidate.InstanceID = metadata.InstanceID
+		candidate.LastHealthSuccessAt = time.Time{}
+		candidate.LastIdentityAt = observedAt
+	}
+	candidate.Weight = metadata.Weight
+	candidate.ActiveRequests = metadata.ActiveRequests
+	candidate.LastMetricsSuccessAt = observedAt
+	if observedAt.After(candidate.LastSuccessAt) {
+		candidate.LastSuccessAt = observedAt
+	}
 	registry.candidates[address] = candidate
 	return nil
 }
@@ -161,7 +241,8 @@ func (registry *Registry) HealthySnapshot() Snapshot {
 	registry.mu.RLock()
 	instances := make([]Instance, 0, len(registry.candidates))
 	for _, candidate := range registry.candidates {
-		if !candidate.Healthy || candidate.InstanceID == "" || candidate.Weight <= 0 {
+		if !candidate.Healthy || candidate.InstanceID == "" || candidate.Weight <= 0 ||
+			candidate.LastHealthSuccessAt.IsZero() || candidate.LastMetricsSuccessAt.IsZero() {
 			continue
 		}
 		instances = append(instances, Instance{
@@ -193,14 +274,21 @@ func validateAddressAndTime(address netip.AddrPort, observedAt time.Time) error 
 }
 
 func validateMetadata(metadata Metadata, observedAt time.Time) error {
-	if strings.TrimSpace(metadata.InstanceID) == "" || metadata.InstanceID != strings.TrimSpace(metadata.InstanceID) {
-		return fmt.Errorf("%w: instance ID must be non-empty without surrounding whitespace", ErrInvalidCandidate)
+	if err := validateIdentity(metadata.InstanceID, observedAt); err != nil {
+		return err
 	}
 	if metadata.Weight <= 0 {
 		return fmt.Errorf("%w: weight must be greater than zero", ErrInvalidCandidate)
 	}
 	if metadata.ActiveRequests < 0 {
 		return fmt.Errorf("%w: active requests must not be negative", ErrInvalidCandidate)
+	}
+	return nil
+}
+
+func validateIdentity(instanceID string, observedAt time.Time) error {
+	if strings.TrimSpace(instanceID) == "" || instanceID != strings.TrimSpace(instanceID) {
+		return fmt.Errorf("%w: instance ID must be non-empty without surrounding whitespace", ErrInvalidCandidate)
 	}
 	if observedAt.IsZero() {
 		return fmt.Errorf("%w: observation timestamp must not be zero", ErrInvalidCandidate)

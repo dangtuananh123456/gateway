@@ -98,6 +98,44 @@ func TestRegistryIgnoresStaleObservation(t *testing.T) {
 	}
 }
 
+func TestRegistryRequiresMatchingHealthAndMetrics(t *testing.T) {
+	registry := New()
+	address := netip.MustParseAddrPort("10.0.0.1:8081")
+	base := testTime()
+	if _, err := registry.Upsert(address, base); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	if err := registry.MarkHealthSuccess(address, "pdu-1", base.Add(time.Second)); err != nil {
+		t.Fatalf("MarkHealthSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 0 {
+		t.Fatalf("snapshot after health only = %d, want 0", got)
+	}
+	if err := registry.MarkMetricsSuccess(address, Metadata{
+		InstanceID: "pdu-1", Weight: 2, ActiveRequests: 4,
+	}, base.Add(2*time.Second)); err != nil {
+		t.Fatalf("MarkMetricsSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 1 {
+		t.Fatalf("snapshot after matching metrics = %d, want 1", got)
+	}
+
+	if err := registry.MarkMetricsSuccess(address, Metadata{
+		InstanceID: "pdu-2", Weight: 3, ActiveRequests: 1,
+	}, base.Add(3*time.Second)); err != nil {
+		t.Fatalf("changed MarkMetricsSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 0 {
+		t.Fatalf("snapshot after identity change = %d, want 0", got)
+	}
+	if err := registry.MarkHealthSuccess(address, "pdu-2", base.Add(4*time.Second)); err != nil {
+		t.Fatalf("changed MarkHealthSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 1 {
+		t.Errorf("snapshot after matching health recovery = %d, want 1", got)
+	}
+}
+
 func TestHealthySnapshotIsSortedAndImmutable(t *testing.T) {
 	registry := New()
 	base := testTime()
