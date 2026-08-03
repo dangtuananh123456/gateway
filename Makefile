@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check docker-up docker-ps docker-smoke docker-down
+.PHONY: build test race bench coverage fmt fmt-check vet lint check docker-up docker-ps docker-smoke docker-e2e-round-robin docker-down
 
 build:
 	$(GO) build ./...
@@ -41,6 +41,9 @@ docker-ps:
 
 docker-smoke:
 	$(GO) run ./scripts/h2c-smoke.go
+
+docker-e2e-round-robin:
+	$(GO) run ./scripts/e2e-round-robin.go
 
 docker-down:
 	$(COMPOSE) down --remove-orphans
