@@ -156,9 +156,10 @@ func (proxy *Proxy) writeTransportError(
 }
 
 func writeGatewayJSON(writer http.ResponseWriter, status int, payload model.ErrorResponse) {
+	body, _ := json.Marshal(payload)
 	writer.Header().Set("Content-Type", constants.ContentTypeJSON)
 	writer.WriteHeader(status)
-	_ = json.NewEncoder(writer).Encode(payload)
+	_, _ = writer.Write(body)
 }
 
 func copyHeaders(destination, source http.Header) {
