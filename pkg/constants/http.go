@@ -4,6 +4,8 @@ const (
 	ContentTypeJSON                         = "application/json"
 	CreateSMContextMaxBodyBytes       int64 = 1 << 20
 	CollectorMaxResponseBodyBytes     int64 = 64 << 10
+	ClientMaxRequestBodyBytes         int64 = 2 << 20
+	ClientMaxResponseBodyBytes        int64 = 2 << 20
 	ProxyCopyBufferBytes                    = 32 << 10
 	UpstreamMaxIdleConnections              = 4096
 	UpstreamMaxIdleConnectionsPerHost       = 256
