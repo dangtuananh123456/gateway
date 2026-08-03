@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,11 +46,15 @@ type Metadata struct {
 type Registry struct {
 	mu         sync.RWMutex
 	candidates map[netip.AddrPort]Candidate
+	snapshot   atomic.Pointer[Snapshot]
 }
 
 // New creates an empty instance registry.
 func New() *Registry {
-	return &Registry{candidates: make(map[netip.AddrPort]Candidate)}
+	registry := &Registry{candidates: make(map[netip.AddrPort]Candidate)}
+	empty := newSnapshot(nil)
+	registry.snapshot.Store(&empty)
+	return registry
 }
 
 // Upsert records an address observed through DNS. New candidates start unhealthy.
@@ -84,6 +89,7 @@ func (registry *Registry) Remove(address netip.AddrPort) bool {
 		return false
 	}
 	delete(registry.candidates, address)
+	registry.publishSnapshotLocked()
 	return true
 }
 
@@ -115,6 +121,7 @@ func (registry *Registry) MarkHealthy(
 	candidate.LastMetricsSuccessAt = observedAt
 	candidate.LastIdentityAt = observedAt
 	registry.candidates[address] = candidate
+	registry.publishSnapshotLocked()
 	return nil
 }
 
@@ -152,6 +159,7 @@ func (registry *Registry) MarkHealthSuccess(
 		candidate.LastSuccessAt = observedAt
 	}
 	registry.candidates[address] = candidate
+	registry.publishSnapshotLocked()
 	return nil
 }
 
@@ -189,6 +197,7 @@ func (registry *Registry) MarkMetricsSuccess(
 		candidate.LastSuccessAt = observedAt
 	}
 	registry.candidates[address] = candidate
+	registry.publishSnapshotLocked()
 	return nil
 }
 
@@ -210,6 +219,7 @@ func (registry *Registry) MarkUnhealthy(address netip.AddrPort, observedAt time.
 	candidate.Healthy = false
 	candidate.LastFailureAt = observedAt
 	registry.candidates[address] = candidate
+	registry.publishSnapshotLocked()
 	return nil
 }
 
@@ -236,9 +246,18 @@ func (registry *Registry) Candidates() []Candidate {
 	return result
 }
 
-// HealthySnapshot returns a coherent immutable view containing only routable instances.
+// HealthySnapshot atomically loads the latest immutable routing view.
 func (registry *Registry) HealthySnapshot() Snapshot {
-	registry.mu.RLock()
+	snapshot := registry.snapshot.Load()
+	if snapshot == nil {
+		return Snapshot{}
+	}
+	return *snapshot
+}
+
+// publishSnapshotLocked builds the complete next view before one atomic store.
+// The caller must hold registry.mu for writing.
+func (registry *Registry) publishSnapshotLocked() {
 	instances := make([]Instance, 0, len(registry.candidates))
 	for _, candidate := range registry.candidates {
 		if !candidate.Healthy || candidate.InstanceID == "" || candidate.Weight <= 0 ||
@@ -252,15 +271,14 @@ func (registry *Registry) HealthySnapshot() Snapshot {
 			ActiveRequests: candidate.ActiveRequests,
 		})
 	}
-	registry.mu.RUnlock()
-
 	slices.SortFunc(instances, func(first, second Instance) int {
 		if comparison := strings.Compare(first.InstanceID, second.InstanceID); comparison != 0 {
 			return comparison
 		}
 		return first.Address.Compare(second.Address)
 	})
-	return newSnapshot(instances)
+	next := newSnapshot(instances)
+	registry.snapshot.Store(&next)
 }
 
 func validateAddressAndTime(address netip.AddrPort, observedAt time.Time) error {

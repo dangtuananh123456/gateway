@@ -105,7 +105,12 @@ func TestCollectorSlowCandidateDoesNotDelayFastCandidate(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fast candidate was not probed")
 	}
+	deadline := time.Now().Add(50 * time.Millisecond)
 	fastCandidate, _ := candidates.Get(fastAddress)
+	for !fastCandidate.Healthy && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		fastCandidate, _ = candidates.Get(fastAddress)
+	}
 	if !fastCandidate.Healthy {
 		t.Fatal("fast candidate was not updated while slow probe was pending")
 	}
