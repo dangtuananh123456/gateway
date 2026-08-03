@@ -112,6 +112,61 @@ func TestServerGracefullyShutsDown(t *testing.T) {
 	}
 }
 
+func TestServerForcesCloseWhenShutdownDeadlineExpires(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	requestStarted := make(chan struct{})
+	handler := http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(requestStarted)
+		<-request.Context().Done()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := testConfig(listener.Addr().String())
+	cfg.ShutdownTimeout = 20 * time.Millisecond
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- serve(ctx, cfg, handler, listener) }()
+
+	transport := &http.Transport{Protocols: h2cOnlyProtocols()}
+	t.Cleanup(transport.CloseIdleConnections)
+	clientDone := make(chan error, 1)
+	go func() {
+		response, requestErr := (&http.Client{Transport: transport}).Get(
+			"http://" + listener.Addr().String() + constants.CreateSMContextPath,
+		)
+		if response != nil {
+			response.Body.Close()
+		}
+		clientDone <- requestErr
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("handler did not start")
+	}
+
+	startedAt := time.Now()
+	cancel()
+	select {
+	case err := <-serverDone:
+		if err == nil || !strings.Contains(err.Error(), "shutdown gateway HTTP server") {
+			t.Errorf("serve() error = %v, want forced shutdown error", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("server exceeded forced shutdown deadline")
+	}
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Errorf("forced shutdown took %s, want at most 500ms", elapsed)
+	}
+	select {
+	case <-clientDone:
+	case <-time.After(time.Second):
+		t.Fatal("client request did not finish after forced close")
+	}
+}
+
 func TestRunRejectsNilHandler(t *testing.T) {
 	err := Run(context.Background(), testConfig("127.0.0.1:0"), nil)
 	if err == nil || !strings.Contains(err.Error(), "handler must not be nil") {
