@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 	"go.uber.org/goleak"
 )
 
@@ -24,7 +25,7 @@ func TestServerAcceptsUnencryptedHTTP2(t *testing.T) {
 	})
 	running := startServer(t, handler)
 
-	response, err := running.h2cClient.Get(running.url + "/nsmf-pdusession/v1/sm-contexts")
+	response, err := running.h2cClient.Get(running.url + constants.CreateSMContextPath)
 	if err != nil {
 		t.Fatalf("send h2c request: %v", err)
 	}
@@ -65,13 +66,26 @@ func TestServerRejectsHTTP1BeforeHandler(t *testing.T) {
 		Transport: http1Transport,
 		Timeout:   time.Second,
 	}
-	response, err := client.Get(running.url + "/nsmf-pdusession/v1/sm-contexts")
+	response, err := client.Get(running.url + constants.CreateSMContextPath)
 	if err == nil {
 		response.Body.Close()
 		t.Fatal("HTTP/1.1 request error = nil, want protocol rejection")
 	}
 	if calls := handlerCalls.Load(); calls != 0 {
 		t.Errorf("handler calls = %d, want 0", calls)
+	}
+}
+
+func TestGatewayProtocolsEnableOnlyUnencryptedHTTP2(t *testing.T) {
+	protocols := h2cOnlyProtocols()
+	if protocols.HTTP1() {
+		t.Error("HTTP/1.0 and HTTP/1.1 are enabled, want disabled")
+	}
+	if protocols.HTTP2() {
+		t.Error("HTTP/2 over TLS is enabled, want disabled")
+	}
+	if !protocols.UnencryptedHTTP2() {
+		t.Error("unencrypted HTTP/2 is disabled, want enabled")
 	}
 }
 
@@ -145,10 +159,8 @@ func startServer(t *testing.T, handler http.Handler) runningServer {
 		close(stopped)
 	}()
 
-	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
 	h2cTransport := &http.Transport{
-		Protocols: protocols,
+		Protocols: h2cOnlyProtocols(),
 	}
 	t.Cleanup(func() {
 		cancel()

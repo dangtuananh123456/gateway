@@ -39,16 +39,13 @@ func serve(
 	handler http.Handler,
 	listener net.Listener,
 ) error {
-	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
-
 	httpServer := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
-		Protocols:         protocols,
+		Protocols:         h2cOnlyProtocols(),
 		BaseContext: func(net.Listener) context.Context {
 			return context.WithoutCancel(ctx)
 		},
@@ -77,6 +74,12 @@ func serve(
 
 		return normalizeServeError(<-serveErrors)
 	}
+}
+
+func h2cOnlyProtocols() *http.Protocols {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	return protocols
 }
 
 func normalizeServeError(err error) error {
