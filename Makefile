@@ -34,7 +34,7 @@ lint: fmt-check vet
 check: lint test
 
 docker-up:
-	$(COMPOSE) up --build -d
+	$(COMPOSE) up --build -d --scale pdu-session=3
 
 docker-ps:
 	$(COMPOSE) ps
@@ -43,4 +43,4 @@ docker-smoke:
 	$(GO) run ./scripts/h2c-smoke.go
 
 docker-down:
-	$(COMPOSE) down
+	$(COMPOSE) down --remove-orphans

@@ -1,3 +1,5 @@
+name: smf-project2
+
 services:
   gateway:
     image: smf-gateway:local
@@ -13,12 +15,16 @@ services:
     environment:
       CONFIG_PATH: /app/config.yaml
       GATEWAY_PUBLIC_URL: http://localhost:18080
+      ROUTING_MODE: round_robin
+      DISCOVERY_HOSTNAME: pdu-session
+      DISCOVERY_PORT: "8081"
     init: true
     read_only: true
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    stop_grace_period: 15s
     deploy:
       resources:
         limits:
@@ -43,5 +49,4 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    deploy:
-      replicas: 3
+    stop_grace_period: 15s
