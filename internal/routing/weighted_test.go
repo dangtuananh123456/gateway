@@ -207,16 +207,23 @@ func TestSmoothWeightedConcurrentScaleChanges(t *testing.T) {
 }
 
 func BenchmarkSmoothWeightedSelect(benchmark *testing.B) {
-	snapshot := weightedTestSnapshot(benchmark, map[string]int{
-		"pdu-1": 3,
-		"pdu-2": 2,
-		"pdu-3": 1,
-	})
-	selector := NewSmoothWeighted()
-	benchmark.ReportAllocs()
-	benchmark.ResetTimer()
-	for range benchmark.N {
-		_, _ = selector.Select(snapshot)
+	for _, backendCount := range []int{3, 20} {
+		benchmark.Run(fmt.Sprintf("Backends_%d", backendCount), func(benchmark *testing.B) {
+			weights := make(map[string]int, backendCount)
+			for index := range backendCount {
+				weights[fmt.Sprintf("pdu-%02d", index+1)] = index%3 + 1
+			}
+			snapshot := weightedTestSnapshot(benchmark, weights)
+			selector := NewSmoothWeighted()
+			benchmark.ReportAllocs()
+			benchmark.ResetTimer()
+			for range benchmark.N {
+				routingBenchmarkInstance, routingBenchmarkErr = selector.Select(snapshot)
+			}
+			if routingBenchmarkErr != nil {
+				benchmark.Fatalf("Select() error = %v", routingBenchmarkErr)
+			}
+		})
 	}
 }
 
