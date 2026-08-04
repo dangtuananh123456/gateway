@@ -1,0 +1,87 @@
+name: smf-project2-load
+
+x-pdu-common: &pdu-common
+  image: smf-pdu-session:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      SERVICE: pdu-session
+  expose:
+    - "8081"
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  stop_grace_period: 15s
+
+services:
+  gateway:
+    image: smf-gateway:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    ports:
+      - "127.0.0.1:18082:8080"
+    depends_on:
+      - pdu-1
+      - pdu-2
+      - pdu-3
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18082
+      GATEWAY_UPSTREAM_TIMEOUT: 4s
+      ROUTING_MODE: load
+      DISCOVERY_HOSTNAME: load-pdu
+      DISCOVERY_PORT: "8081"
+      DISCOVERY_POLL_INTERVAL: 250ms
+      DISCOVERY_HEALTH_INTERVAL: 250ms
+      DISCOVERY_METRICS_INTERVAL: 100ms
+      DISCOVERY_STALE_TTL: 3s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+
+  pdu-1:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18082
+      PDU_INSTANCE_ID: pdu-1
+      PDU_PROCESSING_DELAY: 2s
+    networks:
+      default:
+        aliases:
+          - load-pdu
+
+  pdu-2:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18082
+      PDU_INSTANCE_ID: pdu-2
+      PDU_PROCESSING_DELAY: 2s
+    networks:
+      default:
+        aliases:
+          - load-pdu
+
+  pdu-3:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18082
+      PDU_INSTANCE_ID: pdu-3
+      PDU_PROCESSING_DELAY: 2s
+    networks:
+      default:
+        aliases:
+          - load-pdu
