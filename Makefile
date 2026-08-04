@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-down
+.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-down
 
 build:
 	$(GO) build ./...
@@ -56,6 +56,18 @@ docker-ui-ps:
 
 docker-ui-smoke:
 	$(GO) run ./scripts/ui-smoke.go
+
+docker-weighted-up:
+	$(COMPOSE) -f docker-compose.weighted.yml up --build -d
+
+docker-weighted-ps:
+	$(COMPOSE) -f docker-compose.weighted.yml ps
+
+docker-e2e-weighted:
+	$(GO) run ./scripts/e2e-weighted.go
+
+docker-weighted-down:
+	$(COMPOSE) -f docker-compose.weighted.yml down --remove-orphans
 
 docker-down:
 	$(COMPOSE) down --remove-orphans
