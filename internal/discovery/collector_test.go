@@ -199,6 +199,55 @@ func TestCollectorRunStopsOnContextCancellation(t *testing.T) {
 	}
 }
 
+func TestCollectorCancellationStopsBlockedProbeRounds(t *testing.T) {
+	candidates := registry.New()
+	for index := range 32 {
+		addCollectorCandidate(t, candidates, fmt.Sprintf("10.0.0.%d:8081", index+1))
+	}
+
+	const concurrency = 8
+	var active atomic.Int64
+	allWorkersBlocked := make(chan struct{})
+	var signalOnce sync.Once
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if active.Add(1) == concurrency {
+			signalOnce.Do(func() { close(allWorkersBlocked) })
+		}
+		defer active.Add(-1)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	collector := newTestCollector(t, candidates, transport)
+	collector.config.MaxConcurrency = concurrency
+	collector.semaphore = make(chan struct{}, concurrency)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 2)
+	go func() { done <- collector.CollectHealth(ctx) }()
+	go func() { done <- collector.CollectMetrics(ctx) }()
+
+	select {
+	case <-allWorkersBlocked:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("probe workers did not reach the configured concurrency")
+	}
+	cancel()
+	for range 2 {
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("collection error = %v, want context cancellation", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("blocked collection round did not stop after cancellation")
+		}
+	}
+	if got := active.Load(); got != 0 {
+		t.Errorf("active probes after cancellation = %d, want 0", got)
+	}
+}
+
 func TestCollectorRejectsInvalidResponses(t *testing.T) {
 	tests := []struct {
 		name string
