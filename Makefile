@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-down
+.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-down
 
 build:
 	$(GO) build ./...
@@ -80,6 +80,18 @@ docker-e2e-load:
 
 docker-load-down:
 	$(COMPOSE) -f docker-compose.load.yml down --remove-orphans
+
+docker-scale-up:
+	$(COMPOSE) -f docker-compose.scale.yml up --build -d --scale pdu-session=3
+
+docker-scale-ps:
+	$(COMPOSE) -f docker-compose.scale.yml ps
+
+docker-e2e-scale:
+	$(GO) run ./scripts/e2e-scale.go
+
+docker-scale-down:
+	$(COMPOSE) -f docker-compose.scale.yml down --remove-orphans
 
 docker-down:
 	$(COMPOSE) down --remove-orphans
