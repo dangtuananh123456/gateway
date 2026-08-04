@@ -1,0 +1,65 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SMF Gateway Project 2 API",
+    "version": "1.0.0",
+    "description": "Gateway accepts HTTP/2 cleartext (h2c) only. Use the Go Test Console bridge from a browser."
+  },
+  "servers": [{ "url": "http://localhost:18080", "description": "Local h2c Gateway" }],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Return health of the selected PDU instance",
+        "responses": { "200": { "description": "Healthy PDU" }, "503": { "description": "No backend available" } }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "summary": "Return cached load source metrics from the selected PDU",
+        "responses": { "200": { "description": "PDU weight and active requests" }, "503": { "description": "No backend available" } }
+      }
+    },
+    "/nsmf-pdusession/v1/sm-contexts": {
+      "post": {
+        "summary": "Create SM Context",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateSMContextRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Context created by the selected PDU" },
+          "400": { "description": "Invalid request" },
+          "502": { "description": "Upstream connection error" },
+          "503": { "description": "No healthy PDU" },
+          "504": { "description": "Upstream timeout" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateSMContextRequest": {
+        "type": "object",
+        "required": ["supi", "pduSessionId", "dnn", "sNssai"],
+        "properties": {
+          "supi": { "type": "string", "examples": ["imsi-452040000000001"] },
+          "gpsi": { "type": "string" },
+          "pduSessionId": { "type": "integer", "minimum": 1 },
+          "dnn": { "type": "string" },
+          "sNssai": { "$ref": "#/components/schemas/SNSSAI" },
+          "servingNfId": { "type": "string" },
+          "anType": { "type": "string" }
+        }
+      },
+      "SNSSAI": {
+        "type": "object",
+        "required": ["sst", "sd"],
+        "properties": { "sst": { "type": "integer", "minimum": 1 }, "sd": { "type": "string" } }
+      }
+    }
+  }
+}

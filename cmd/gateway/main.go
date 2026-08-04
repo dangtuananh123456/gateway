@@ -9,10 +9,11 @@ import (
 
 	"github.com/dangtuananh123456/gateway/internal/config"
 	"github.com/dangtuananh123456/gateway/internal/gateway"
+	"github.com/dangtuananh123456/gateway/internal/logging"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := logging.New(os.Stdout)
 	if err := run(logger); err != nil {
 		logger.Error("gateway stopped", "error", err)
 		os.Exit(1)

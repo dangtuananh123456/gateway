@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="SMF Gateway h2c test console">
+  <title>SMF Gateway Test Console</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">SMF</div>
+    <div>
+      <h1>Gateway Test Console</h1>
+      <p>Swagger-like UI · Go h2c bridge · Project 2</p>
+    </div>
+    <div class="connection">
+      <span class="pulse"></span>
+      <div><small>Gateway target</small><strong id="gateway-target">loading…</strong></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-title">Gateway API</div>
+      <button class="endpoint get" data-preset="health"><span>GET</span><code>/health</code><small>Healthy PDU</small></button>
+      <button class="endpoint get" data-preset="metrics"><span>GET</span><code>/metrics</code><small>Weight & active load</small></button>
+      <button class="endpoint post active" data-preset="create"><span>POST</span><code>/nsmf-pdusession/v1/sm-contexts</code><small>Create SM Context</small></button>
+
+      <div class="side-title spaced">Failure presets</div>
+      <button class="endpoint warn" data-preset="invalid"><span>400</span><code>Invalid request</code></button>
+      <button class="endpoint warn" data-preset="method"><span>405</span><code>Wrong method</code></button>
+      <button class="endpoint warn" data-preset="missing"><span>404</span><code>Unknown path</code></button>
+
+      <a class="spec-link" href="/openapi.json" target="_blank" rel="noreferrer">OpenAPI 3.1 specification ↗</a>
+    </aside>
+
+    <main>
+      <section class="panel request-panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">REQUEST BUILDER</span><h2>Try the Gateway</h2></div>
+          <div class="protocol-pill">Browser HTTP/1.1 <b>→</b> Go bridge <b>→</b> Gateway h2c</div>
+        </div>
+
+        <div class="request-line">
+          <select id="method" aria-label="HTTP method">
+            <option>GET</option><option selected>POST</option><option>PUT</option>
+            <option>PATCH</option><option>DELETE</option><option>OPTIONS</option>
+          </select>
+          <input id="path" value="/nsmf-pdusession/v1/sm-contexts" aria-label="Request path">
+          <button id="send" class="primary">Send request <kbd>Ctrl ↵</kbd></button>
+        </div>
+
+        <div class="editor-grid">
+          <div>
+            <label for="headers">Headers <span>JSON object</span></label>
+            <textarea id="headers" spellcheck="false">{
+  "Content-Type": "application/json",
+  "X-Request-ID": "ui-demo-001"
+}</textarea>
+          </div>
+          <div>
+            <label for="body">Request body <span>forwarded as a stream</span></label>
+            <textarea id="body" class="body-editor" spellcheck="false">{
+  "supi": "imsi-452040000000001",
+  "gpsi": "msisdn-84900000001",
+  "pduSessionId": 1,
+  "dnn": "v-internet",
+  "sNssai": { "sst": 1, "sd": "000001" },
+  "servingNfId": "ui-amf-001",
+  "anType": "3GPP_ACCESS"
+}</textarea>
+          </div>
+        </div>
+        <div id="request-error" class="inline-error hidden"></div>
+      </section>
+
+      <section class="panel scenario-panel">
+        <div>
+          <span class="eyebrow">TRAFFIC SCENARIO</span>
+          <h2>Routing distribution</h2>
+          <p>Gửi tuần tự nhiều Create Session, gom nhóm theo <code>handledBy</code> để quan sát Round Robin, Weighted hoặc Load-based.</p>
+        </div>
+        <div class="scenario-controls">
+          <label for="scenario-count">Requests</label>
+          <input id="scenario-count" type="number" min="1" max="100" value="6">
+          <button id="run-scenario" class="secondary">Run scenario</button>
+        </div>
+        <div id="distribution" class="distribution empty">Chưa có dữ liệu phân phối.</div>
+        <div id="sequence" class="sequence"></div>
+      </section>
+
+      <section class="panel response-panel">
+        <div class="panel-heading response-heading">
+          <div><span class="eyebrow">RESPONSE</span><h2>Gateway result</h2></div>
+          <div class="response-meta">
+            <span id="status" class="status neutral">Not sent</span>
+            <span id="protocol">—</span>
+            <span id="latency">— ms</span>
+          </div>
+        </div>
+        <div class="response-tabs">
+          <button class="tab active" data-tab="response-body">Body</button>
+          <button class="tab" data-tab="response-headers">Headers</button>
+        </div>
+        <pre id="response-body">Chọn một preset hoặc tự nhập request rồi nhấn “Send request”.</pre>
+        <pre id="response-headers" class="hidden">{}</pre>
+      </section>
+
+      <section class="bottom-grid">
+        <div class="panel guide">
+          <span class="eyebrow">DEBUG RECIPES</span><h2>Test failure & recovery</h2>
+          <ol>
+            <li><code>make docker-ui-up</code> — chạy Gateway, 3 PDU và UI.</li>
+            <li><code>docker compose stop pdu-session</code> — chờ detection window rồi gửi request để xem exact 503.</li>
+            <li><code>docker compose start pdu-session</code> — quan sát recovery không restart Gateway.</li>
+            <li>Đổi <code>ROUTING_MODE</code>, recreate Gateway rồi chạy Traffic Scenario để xem distribution.</li>
+          </ol>
+        </div>
+        <div class="panel history-panel">
+          <span class="eyebrow">LOCAL HISTORY</span><h2>Recent requests</h2>
+          <div class="table-wrap"><table><thead><tr><th>#</th><th>Request</th><th>Status</th><th>Node</th><th>Latency</th></tr></thead><tbody id="history"><tr><td colspan="5" class="muted">No requests yet</td></tr></tbody></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

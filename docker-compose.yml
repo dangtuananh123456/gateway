@@ -1,6 +1,31 @@
 name: smf-project2
 
 services:
+  client:
+    profiles:
+      - tools
+    image: smf-test-client:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: client
+    ports:
+      - "127.0.0.1:18090:8090"
+    depends_on:
+      - gateway
+    environment:
+      CLIENT_ADDRESS: ":8090"
+      CLIENT_GATEWAY_URL: http://gateway:8080
+      CLIENT_REQUEST_TIMEOUT: 5s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+
   gateway:
     image: smf-gateway:local
     build:
@@ -9,7 +34,7 @@ services:
       args:
         SERVICE: gateway
     ports:
-      - "127.0.0.1:18080:8080"
+      - "127.0.0.1:18090:8080"
     depends_on:
       - pdu-session
     environment:

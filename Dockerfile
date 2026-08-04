@@ -15,7 +15,7 @@ COPY pkg ./pkg
 
 ARG SERVICE
 RUN case "${SERVICE}" in \
-      gateway|pdu-session) ;; \
+      client|gateway|pdu-session) ;; \
       *) echo "unsupported SERVICE: ${SERVICE}" >&2; exit 1 ;; \
     esac && \
     CGO_ENABLED=0 GOOS=linux go build \

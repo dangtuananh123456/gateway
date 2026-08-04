@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check docker-up docker-ps docker-smoke docker-e2e-round-robin docker-down
+.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-down
 
 build:
 	$(GO) build ./...
@@ -33,6 +33,9 @@ lint: fmt-check vet
 
 check: lint test
 
+client-run:
+	$(GO) run ./cmd/client
+
 docker-up:
 	$(COMPOSE) up --build -d --scale pdu-session=3
 
@@ -44,6 +47,15 @@ docker-smoke:
 
 docker-e2e-round-robin:
 	$(GO) run ./scripts/e2e-round-robin.go
+
+docker-ui-up:
+	$(COMPOSE) --profile tools up --build -d --scale pdu-session=3
+
+docker-ui-ps:
+	$(COMPOSE) --profile tools ps
+
+docker-ui-smoke:
+	$(GO) run ./scripts/ui-smoke.go
 
 docker-down:
 	$(COMPOSE) down --remove-orphans
