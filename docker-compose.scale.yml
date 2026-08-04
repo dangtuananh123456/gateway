@@ -1,0 +1,55 @@
+name: smf-project2-scale
+
+services:
+  gateway:
+    image: smf-gateway:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    ports:
+      - "127.0.0.1:18083:8080"
+    depends_on:
+      - pdu-session
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18083
+      GATEWAY_UPSTREAM_TIMEOUT: 10s
+      ROUTING_MODE: ${ROUTING_MODE:-round_robin}
+      DISCOVERY_HOSTNAME: pdu-session
+      DISCOVERY_PORT: "8081"
+      DISCOVERY_POLL_INTERVAL: 250ms
+      DISCOVERY_HEALTH_INTERVAL: 250ms
+      DISCOVERY_METRICS_INTERVAL: 100ms
+      DISCOVERY_STALE_TTL: 3s
+      DISCOVERY_MAX_CONCURRENCY: "40"
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+
+  pdu-session:
+    image: smf-pdu-session:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: pdu-session
+    expose:
+      - "8081"
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18083
+      PDU_WEIGHT: "1"
+      PDU_PROCESSING_DELAY: ${PDU_PROCESSING_DELAY:-0s}
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
