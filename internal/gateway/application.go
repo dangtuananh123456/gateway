@@ -12,6 +12,7 @@ import (
 	"github.com/dangtuananh123456/gateway/internal/config"
 	"github.com/dangtuananh123456/gateway/internal/discovery"
 	"github.com/dangtuananh123456/gateway/internal/registry"
+	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/internal/routing"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
@@ -40,6 +41,7 @@ type Application struct {
 	server    ServerRunner
 	serverCfg ServerConfig
 	handler   http.Handler
+	logger    *slog.Logger
 }
 
 // NewApplication creates a production Gateway application.
@@ -137,6 +139,7 @@ func NewApplicationWithDependencies(
 		server:    dependencies.Serve,
 		serverCfg: serverConfigFrom(cfg.Gateway.Server),
 		handler:   proxy,
+		logger:    logger,
 	}, nil
 }
 
@@ -175,7 +178,11 @@ func (application *Application) Run(ctx context.Context) error {
 	start("DNS scheduler", application.scheduler.Run)
 	start("health and metrics collector", application.collector.Run)
 	start("HTTP server", func(componentCtx context.Context) error {
-		return application.server(componentCtx, application.serverCfg, application.handler)
+		return application.server(
+			componentCtx,
+			application.serverCfg,
+			requestlog.New(application.logger, "gateway", application.handler),
+		)
 	})
 
 	var lifecycleErrors []error

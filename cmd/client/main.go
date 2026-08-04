@@ -9,10 +9,12 @@ import (
 	"syscall"
 
 	"github.com/dangtuananh123456/gateway/internal/client"
+	"github.com/dangtuananh123456/gateway/internal/logging"
+	"github.com/dangtuananh123456/gateway/internal/requestlog"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := logging.New(os.Stdout)
 	if err := run(logger); err != nil {
 		logger.Error("test client stopped", "error", err)
 		os.Exit(1)
@@ -36,5 +38,5 @@ func run(logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	logger.Info("test client starting", "address", cfg.Address, "gateway_url", cfg.GatewayURL)
-	return client.Run(ctx, cfg, handler)
+	return client.Run(ctx, cfg, requestlog.New(logger, "client", handler))
 }

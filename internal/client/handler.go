@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
@@ -141,6 +142,12 @@ func (handler *Handler) execute(writer http.ResponseWriter, request *http.Reques
 	}
 	for name, value := range input.Headers {
 		upstreamRequest.Header.Set(name, value)
+	}
+	if upstreamRequest.Header.Get(requestlog.RequestIDHeader) == "" {
+		upstreamRequest.Header.Set(
+			requestlog.RequestIDHeader,
+			request.Header.Get(requestlog.RequestIDHeader),
+		)
 	}
 	if input.Body != "" && upstreamRequest.Header.Get("Content-Type") == "" {
 		upstreamRequest.Header.Set("Content-Type", constants.ContentTypeJSON)

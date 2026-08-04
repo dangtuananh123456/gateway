@@ -8,12 +8,14 @@ import (
 	"syscall"
 
 	"github.com/dangtuananh123456/gateway/internal/config"
+	"github.com/dangtuananh123456/gateway/internal/logging"
 	"github.com/dangtuananh123456/gateway/internal/pdu"
+	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/internal/store"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := logging.New(os.Stdout)
 	if err := run(logger); err != nil {
 		logger.Error("pdu-session stopped", "error", err)
 		os.Exit(1)
@@ -69,6 +71,6 @@ func run(logger *slog.Logger) error {
 			ShutdownTimeout:   cfg.PDU.Server.ShutdownTimeout,
 			MaxHeaderBytes:    cfg.PDU.Server.MaxHeaderBytes,
 		},
-		handler,
+		requestlog.New(logger, "pdu-session", handler),
 	)
 }

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
@@ -99,6 +100,25 @@ func TestHandlerPreservesGatewayErrorAsInspectableResult(t *testing.T) {
 		!strings.Contains(result.Body, "NO_BACKEND_AVAILABLE") {
 		t.Errorf("bridge=%d result=%+v", response.Code, result)
 	}
+}
+
+func TestHandlerPropagatesInboundRequestIDToGateway(t *testing.T) {
+	handler := newTestHandler(t, doerFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Get(requestlog.RequestIDHeader); got != "browser-request-123" {
+			t.Errorf("Gateway request ID = %q, want browser-request-123", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK, Status: "200 OK", Proto: "HTTP/2.0", ProtoMajor: 2,
+			Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)),
+		}, nil
+	}))
+	input, err := json.Marshal(executeRequest{Method: http.MethodGet, Path: "/health"})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/request", bytes.NewReader(input))
+	request.Header.Set(requestlog.RequestIDHeader, "browser-request-123")
+	handler.ServeHTTP(httptest.NewRecorder(), request)
 }
 
 func TestHandlerRejectsUnsafeOrMalformedBridgeRequests(t *testing.T) {
