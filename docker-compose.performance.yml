@@ -1,0 +1,64 @@
+name: smf-project2-performance
+
+services:
+  gateway:
+    image: smf-gateway-performance:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    ports:
+      - "127.0.0.1:18085:8080"
+      - "127.0.0.1:16060:6060"
+    depends_on:
+      - pdu-session
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      LOG_LEVEL: error
+      PPROF_ADDRESS: ":6060"
+      GATEWAY_PUBLIC_URL: http://localhost:18085
+      GATEWAY_UPSTREAM_TIMEOUT: 3s
+      ROUTING_MODE: ${PERF_ROUTING_MODE:-round_robin}
+      DISCOVERY_HOSTNAME: pdu-session
+      DISCOVERY_PORT: "8081"
+      DISCOVERY_POLL_INTERVAL: 1s
+      DISCOVERY_HEALTH_INTERVAL: 1s
+      DISCOVERY_HEALTH_TIMEOUT: 3s
+      DISCOVERY_METRICS_INTERVAL: 250ms
+      DISCOVERY_METRICS_TIMEOUT: 3s
+      DISCOVERY_STALE_TTL: 5s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+
+  pdu-session:
+    image: smf-pdu-session-performance:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: pdu-session
+    expose:
+      - "8081"
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      LOG_LEVEL: error
+      GATEWAY_PUBLIC_URL: http://localhost:18085
+      PDU_PROCESSING_DELAY: 0s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s

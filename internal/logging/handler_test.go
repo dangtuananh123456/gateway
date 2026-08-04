@@ -94,3 +94,17 @@ func TestNewHonorsNoColor(t *testing.T) {
 		t.Errorf("NO_COLOR output contains ANSI escape: %q", output.String())
 	}
 }
+
+func TestNewHonorsConfiguredMinimumLevel(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "error")
+	var output bytes.Buffer
+	logger := New(&output)
+	logger.Info("successful request", "status", 201)
+	logger.Error("failed request", "status", 500)
+	if strings.Contains(output.String(), "successful request") {
+		t.Errorf("output contains filtered info record: %q", output.String())
+	}
+	if !strings.Contains(output.String(), "failed request") {
+		t.Errorf("output does not contain error record: %q", output.String())
+	}
+}

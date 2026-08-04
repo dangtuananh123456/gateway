@@ -3,7 +3,7 @@ COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 LOAD_TEST_ARGS ?= -target http://localhost:18080/nsmf-pdusession/v1/sm-contexts -duration 10s -connections 4 -streams 50 -request-timeout 3s
 
-.PHONY: build test race lifecycle bench coverage fmt fmt-check vet lint check client-run load-test docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-down
+.PHONY: build test race lifecycle bench coverage fmt fmt-check vet lint check client-run load-test docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-performance-up docker-performance-ps docker-performance-down docker-down
 
 build:
 	$(GO) build ./...
@@ -111,6 +111,15 @@ docker-e2e-failure:
 
 docker-failure-down:
 	$(COMPOSE) -f docker-compose.failure.yml down --remove-orphans
+
+docker-performance-up:
+	$(COMPOSE) -f docker-compose.performance.yml up --build -d --scale pdu-session=3
+
+docker-performance-ps:
+	$(COMPOSE) -f docker-compose.performance.yml ps
+
+docker-performance-down:
+	$(COMPOSE) -f docker-compose.performance.yml down --remove-orphans
 
 docker-down:
 	$(COMPOSE) down --remove-orphans
