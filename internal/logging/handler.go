@@ -32,8 +32,9 @@ const (
 // New creates a concurrency-safe logger with compact container-friendly output.
 func New(writer io.Writer) *slog.Logger {
 	return slog.New(&Handler{
-		output: &sharedOutput{writer: writer},
-		color:  os.Getenv("NO_COLOR") == "",
+		output:   &sharedOutput{writer: writer},
+		color:    os.Getenv("NO_COLOR") == "",
+		minLevel: configuredLevel(os.Getenv("LOG_LEVEL")),
 	})
 }
 
@@ -44,14 +45,15 @@ type sharedOutput struct {
 
 // Handler renders one slog record as a single compact text line.
 type Handler struct {
-	output *sharedOutput
-	attrs  []slog.Attr
-	groups []string
-	color  bool
+	output   *sharedOutput
+	attrs    []slog.Attr
+	groups   []string
+	color    bool
+	minLevel slog.Level
 }
 
-func (handler *Handler) Enabled(context.Context, slog.Level) bool {
-	return true
+func (handler *Handler) Enabled(_ context.Context, level slog.Level) bool {
+	return level >= handler.minLevel
 }
 
 func (handler *Handler) Handle(_ context.Context, record slog.Record) error {
@@ -95,10 +97,24 @@ func (handler *Handler) WithGroup(name string) slog.Handler {
 
 func (handler *Handler) clone() *Handler {
 	return &Handler{
-		output: handler.output,
-		attrs:  append([]slog.Attr(nil), handler.attrs...),
-		groups: append([]string(nil), handler.groups...),
-		color:  handler.color,
+		output:   handler.output,
+		attrs:    append([]slog.Attr(nil), handler.attrs...),
+		groups:   append([]string(nil), handler.groups...),
+		color:    handler.color,
+		minLevel: handler.minLevel,
+	}
+}
+
+func configuredLevel(value string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
 
