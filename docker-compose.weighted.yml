@@ -1,0 +1,82 @@
+name: smf-project2-weighted
+
+x-pdu-common: &pdu-common
+  image: smf-pdu-session:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      SERVICE: pdu-session
+  expose:
+    - "8081"
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  stop_grace_period: 15s
+
+services:
+  gateway:
+    image: smf-gateway:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: gateway
+    ports:
+      - "127.0.0.1:18081:8080"
+    depends_on:
+      - pdu-1
+      - pdu-2
+      - pdu-3
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18081
+      ROUTING_MODE: weighted
+      DISCOVERY_HOSTNAME: weighted-pdu
+      DISCOVERY_PORT: "8081"
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+
+  pdu-1:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18081
+      PDU_INSTANCE_ID: pdu-1
+      PDU_WEIGHT: "3"
+    networks:
+      default:
+        aliases:
+          - weighted-pdu
+
+  pdu-2:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18081
+      PDU_INSTANCE_ID: pdu-2
+      PDU_WEIGHT: "2"
+    networks:
+      default:
+        aliases:
+          - weighted-pdu
+
+  pdu-3:
+    <<: *pdu-common
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      GATEWAY_PUBLIC_URL: http://localhost:18081
+      PDU_INSTANCE_ID: pdu-3
+      PDU_WEIGHT: "1"
+    networks:
+      default:
+        aliases:
+          - weighted-pdu
