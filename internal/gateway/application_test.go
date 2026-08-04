@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -123,6 +124,99 @@ func TestApplicationComponentFailureCancelsLifecycle(t *testing.T) {
 	}
 }
 
+func TestApplicationShutdownCancelsSlowDNSProbesAndInflightRequests(t *testing.T) {
+	lookup := newBlockingApplicationLookup()
+	transport := newBlockingApplicationTransport()
+	const inflightRequests = 24
+	serverReady := make(chan struct{})
+	server := ServerRunner(func(ctx context.Context, _ ServerConfig, handler http.Handler) error {
+		deadline := time.Now().Add(time.Second)
+		for {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(
+				response,
+				httptest.NewRequest(http.MethodPost, "http://gateway"+constants.CreateSMContextPath, nil).WithContext(ctx),
+			)
+			if response.Code == http.StatusCreated {
+				break
+			}
+			if time.Now().After(deadline) {
+				return errors.New("Gateway did not become routable")
+			}
+			time.Sleep(time.Millisecond)
+		}
+
+		var requests sync.WaitGroup
+		requests.Add(inflightRequests)
+		for range inflightRequests {
+			go func() {
+				defer requests.Done()
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(
+					response,
+					httptest.NewRequest(http.MethodPost, "http://gateway"+constants.CreateSMContextPath, nil).WithContext(ctx),
+				)
+			}()
+		}
+		close(serverReady)
+		<-ctx.Done()
+		requests.Wait()
+		return nil
+	})
+
+	application, err := NewApplicationWithDependencies(
+		applicationTestConfig(),
+		discardLogger(),
+		ApplicationDependencies{Lookup: lookup, Transport: transport, Serve: server},
+	)
+	if err != nil {
+		t.Fatalf("NewApplicationWithDependencies() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- application.Run(ctx) }()
+	select {
+	case <-serverReady:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("server did not start inflight requests")
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for (lookup.blocked.Load() == 0 || transport.blockedHealth.Load() == 0 ||
+		transport.blockedMetrics.Load() == 0 || transport.blockedProxy.Load() < inflightRequests) &&
+		time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if lookup.blocked.Load() == 0 || transport.blockedHealth.Load() == 0 ||
+		transport.blockedMetrics.Load() == 0 || transport.blockedProxy.Load() < inflightRequests {
+		cancel()
+		t.Fatalf("slow operations not all active: DNS=%d health=%d metrics=%d proxy=%d",
+			lookup.blocked.Load(), transport.blockedHealth.Load(),
+			transport.blockedMetrics.Load(), transport.blockedProxy.Load())
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("application did not stop after lifecycle cancellation")
+	}
+	if got := lookup.active.Load(); got != 0 {
+		t.Errorf("active DNS lookups after shutdown = %d, want 0", got)
+	}
+	if got := transport.active.Load(); got != 0 {
+		t.Errorf("active transport calls after shutdown = %d, want 0", got)
+	}
+	if got := transport.closed.Load(); got != 1 {
+		t.Errorf("CloseIdleConnections calls = %d, want 1", got)
+	}
+}
+
 func TestNewApplicationWithDependenciesValidatesInputs(t *testing.T) {
 	validConfig := applicationTestConfig()
 	validLogger := discardLogger()
@@ -202,6 +296,70 @@ type applicationTransport struct {
 	metricsCalls atomic.Int64
 	proxyCalls   atomic.Int64
 	closed       atomic.Int64
+}
+
+type blockingApplicationLookup struct {
+	calls   atomic.Int64
+	blocked atomic.Int64
+	active  atomic.Int64
+}
+
+func newBlockingApplicationLookup() *blockingApplicationLookup {
+	return &blockingApplicationLookup{}
+}
+
+func (lookup *blockingApplicationLookup) LookupIPAddr(ctx context.Context, _ string) ([]net.IPAddr, error) {
+	if lookup.calls.Add(1) == 1 {
+		return []net.IPAddr{{IP: net.ParseIP("10.0.0.1")}}, nil
+	}
+	lookup.blocked.Add(1)
+	lookup.active.Add(1)
+	defer lookup.active.Add(-1)
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+type blockingApplicationTransport struct {
+	healthCalls    atomic.Int64
+	metricsCalls   atomic.Int64
+	proxyCalls     atomic.Int64
+	blockedHealth  atomic.Int64
+	blockedMetrics atomic.Int64
+	blockedProxy   atomic.Int64
+	active         atomic.Int64
+	closed         atomic.Int64
+}
+
+func newBlockingApplicationTransport() *blockingApplicationTransport {
+	return &blockingApplicationTransport{}
+}
+
+func (transport *blockingApplicationTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	switch request.URL.Path {
+	case constants.HealthPath:
+		if transport.healthCalls.Add(1) == 1 {
+			return proxyResponse(http.StatusOK, `{"instanceId":"pdu-1","status":"UP"}`), nil
+		}
+		transport.blockedHealth.Add(1)
+	case constants.MetricsPath:
+		if transport.metricsCalls.Add(1) == 1 {
+			return proxyResponse(http.StatusOK, `{"instanceId":"pdu-1","weight":1,"activeRequests":0}`), nil
+		}
+		transport.blockedMetrics.Add(1)
+	default:
+		if transport.proxyCalls.Add(1) == 1 {
+			return proxyResponse(http.StatusCreated, `{"handledBy":"pdu-1"}`), nil
+		}
+		transport.blockedProxy.Add(1)
+	}
+	transport.active.Add(1)
+	defer transport.active.Add(-1)
+	<-request.Context().Done()
+	return nil, request.Context().Err()
+}
+
+func (transport *blockingApplicationTransport) CloseIdleConnections() {
+	transport.closed.Add(1)
 }
 
 func (transport *applicationTransport) RoundTrip(request *http.Request) (*http.Response, error) {

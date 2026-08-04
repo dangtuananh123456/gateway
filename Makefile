@@ -2,7 +2,7 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 
-.PHONY: build test race bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-down
+.PHONY: build test race lifecycle bench coverage fmt fmt-check vet lint check client-run docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-ps docker-ui-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-down
 
 build:
 	$(GO) build ./...
@@ -12,6 +12,9 @@ test:
 
 race:
 	$(GO) test -race ./...
+
+lifecycle:
+	$(GO) test -count=10 ./internal/discovery ./internal/gateway ./internal/registry ./internal/routing
 
 bench:
 	$(GO) test "-run=^$$" "-bench=." -benchmem ./...
