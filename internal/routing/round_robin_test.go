@@ -135,14 +135,30 @@ func TestRoundRobinConcurrentSelection(t *testing.T) {
 }
 
 func BenchmarkRoundRobinSelect(benchmark *testing.B) {
-	snapshot := routingTestSnapshot(benchmark, "pdu-1", "pdu-2", "pdu-3")
-	selector := NewRoundRobin()
-	benchmark.ReportAllocs()
-	benchmark.ResetTimer()
-	for range benchmark.N {
-		_, _ = selector.Select(snapshot)
+	for _, backendCount := range []int{3, 20} {
+		benchmark.Run(fmt.Sprintf("Backends_%d", backendCount), func(benchmark *testing.B) {
+			instanceIDs := make([]string, backendCount)
+			for index := range backendCount {
+				instanceIDs[index] = fmt.Sprintf("pdu-%02d", index+1)
+			}
+			snapshot := routingTestSnapshot(benchmark, instanceIDs...)
+			selector := NewRoundRobin()
+			benchmark.ReportAllocs()
+			benchmark.ResetTimer()
+			for range benchmark.N {
+				routingBenchmarkInstance, routingBenchmarkErr = selector.Select(snapshot)
+			}
+			if routingBenchmarkErr != nil {
+				benchmark.Fatalf("Select() error = %v", routingBenchmarkErr)
+			}
+		})
 	}
 }
+
+var (
+	routingBenchmarkInstance registry.Instance
+	routingBenchmarkErr      error
+)
 
 type testingHelper interface {
 	Helper()

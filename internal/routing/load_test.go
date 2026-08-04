@@ -2,6 +2,7 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"net/netip"
 	"slices"
 	"sync"
@@ -153,16 +154,26 @@ func TestLoadBasedConcurrentSelection(t *testing.T) {
 }
 
 func BenchmarkLoadBasedSelect(benchmark *testing.B) {
-	snapshot := loadTestSnapshot(benchmark, []loadTestInstance{
-		{id: "pdu-1", activeRequests: 5},
-		{id: "pdu-2", activeRequests: 1},
-		{id: "pdu-3", activeRequests: 3},
-	})
-	selector := NewLoadBased()
-	benchmark.ReportAllocs()
-	benchmark.ResetTimer()
-	for range benchmark.N {
-		_, _ = selector.Select(snapshot)
+	for _, backendCount := range []int{3, 20} {
+		benchmark.Run(fmt.Sprintf("Backends_%d", backendCount), func(benchmark *testing.B) {
+			instances := make([]loadTestInstance, backendCount)
+			for index := range backendCount {
+				instances[index] = loadTestInstance{
+					id:             fmt.Sprintf("pdu-%02d", index+1),
+					activeRequests: int64((index*7 + 3) % backendCount),
+				}
+			}
+			snapshot := loadTestSnapshot(benchmark, instances)
+			selector := NewLoadBased()
+			benchmark.ReportAllocs()
+			benchmark.ResetTimer()
+			for range benchmark.N {
+				routingBenchmarkInstance, routingBenchmarkErr = selector.Select(snapshot)
+			}
+			if routingBenchmarkErr != nil {
+				benchmark.Fatalf("Select() error = %v", routingBenchmarkErr)
+			}
+		})
 	}
 }
 
