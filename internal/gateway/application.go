@@ -131,6 +131,10 @@ func NewApplicationWithDependencies(
 	if err != nil {
 		return nil, err
 	}
+	apiHandler, err := NewAPIHandler(candidates, cfg.Routing.Mode, proxy)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Application{
 		scheduler: scheduler,
@@ -138,7 +142,7 @@ func NewApplicationWithDependencies(
 		transport: dependencies.Transport,
 		server:    dependencies.Serve,
 		serverCfg: serverConfigFrom(cfg.Gateway.Server),
-		handler:   proxy,
+		handler:   apiHandler,
 		logger:    logger,
 	}, nil
 }

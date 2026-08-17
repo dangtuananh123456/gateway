@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/loadtest"
 	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
@@ -27,9 +29,11 @@ type HTTPDoer interface {
 
 // Handler serves the UI and forwards controlled requests to one fixed Gateway.
 type Handler struct {
-	gatewayURL *url.URL
-	client     HTTPDoer
-	static     http.Handler
+	gatewayURL        *url.URL
+	client            HTTPDoer
+	static            http.Handler
+	performanceRunner performanceRunner
+	performanceMu     sync.Mutex
 }
 
 type executeRequest struct {
@@ -67,10 +71,15 @@ func NewHandler(gatewayURL string, HTTPClient HTTPDoer) (*Handler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create test client handler: load static assets: %w", err)
 	}
+	runner, err := loadtest.NewRunner(loadtest.NewH2CTransport)
+	if err != nil {
+		return nil, fmt.Errorf("create test client handler: %w", err)
+	}
 	return &Handler{
-		gatewayURL: parsedGateway,
-		client:     HTTPClient,
-		static:     http.FileServer(http.FS(assets)),
+		gatewayURL:        parsedGateway,
+		client:            HTTPClient,
+		static:            http.FileServer(http.FS(assets)),
+		performanceRunner: runner,
 	}, nil
 }
 
@@ -90,6 +99,10 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		handler.execute(writer, request)
+	case constants.ClientPerformanceRoundRobinPath,
+		constants.ClientPerformanceWeightedPath,
+		constants.ClientPerformanceLoadPath:
+		handler.servePerformance(writer, request)
 	default:
 		if request.Method != http.MethodGet && request.Method != http.MethodHead {
 			methodNotAllowed(writer, http.MethodGet)

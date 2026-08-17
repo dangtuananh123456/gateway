@@ -9,13 +9,18 @@ import (
 )
 
 // NewH2CTransport creates the client-side transport required by the Gateway.
-func NewH2CTransport() *http.Transport {
+func CTransport() *http.Transport {
 	protocols := new(http.Protocols)
 	protocols.SetUnencryptedHTTP2(true)
 	return &http.Transport{
 		DisableCompression: true,
 		Protocols:          protocols,
 	}
+}
+
+// NewH2CTransport preserves the existing constructor used by the client entrypoint.
+func NewH2CTransport() *http.Transport {
+	return CTransport()
 }
 
 // Run serves the browser UI until ctx is canceled.

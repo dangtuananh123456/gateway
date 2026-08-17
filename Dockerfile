@@ -13,7 +13,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY pkg ./pkg
 
-ARG SERVICE
+ARG SERVICE 
 RUN case "${SERVICE}" in \
       client|gateway|pdu-session) ;; \
       *) echo "unsupported SERVICE: ${SERVICE}" >&2; exit 1 ;; \

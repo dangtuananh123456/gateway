@@ -12,4 +12,9 @@ const (
 	CreateSMContextPath                     = "/nsmf-pdusession/v1/sm-contexts"
 	HealthPath                              = "/health"
 	MetricsPath                             = "/metrics"
+	GatewayBackendsPath                     = "/gateway/backends"
+	GatewayStatsPath                        = "/gateway/stats"
+	ClientPerformanceRoundRobinPath         = "/api/performance/round-robin"
+	ClientPerformanceWeightedPath           = "/api/performance/weighted"
+	ClientPerformanceLoadPath               = "/api/performance/load"
 )

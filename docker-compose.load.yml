@@ -18,6 +18,31 @@ x-pdu-common: &pdu-common
   stop_grace_period: 15s
 
 services:
+  client:
+    profiles:
+      - tools
+    image: smf-test-client:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: client
+    ports:
+      - "127.0.0.1:18090:8090"
+    depends_on:
+      - gateway
+    environment:
+      CLIENT_ADDRESS: ":8090"
+      CLIENT_GATEWAY_URL: http://gateway:8080
+      CLIENT_REQUEST_TIMEOUT: 5s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+
   gateway:
     image: smf-gateway:local
     build:
@@ -85,3 +110,17 @@ services:
       default:
         aliases:
           - load-pdu
+
+
+# • Ngày test: 12/08/2026
+# • Hệ điều hành: Linux 7.0.0-28-generic, x86_64
+# • CPU: AMD Ryzen 9 9900X 12-Core Processor
+# • Go: 1.26.5 linux/amd64
+# • Docker: 29.6.2
+# • Docker Compose: v5.3.1
+
+
+# • Ngày test: 11/08/2026
+# • Hệ điều hành: Windows amd64
+# • CPU: Intel Core i5-1135G7 @ 2.40 GHz
+# • Go: 1.26.5

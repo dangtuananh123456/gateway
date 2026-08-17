@@ -19,6 +19,48 @@
         "responses": { "200": { "description": "PDU weight and active requests" }, "503": { "description": "No backend available" } }
       }
     },
+    "/gateway/backends": {
+      "get": {
+        "summary": "List healthy PDU instances in the current routing snapshot",
+        "responses": { "200": { "description": "Current healthy backend list and count" } }
+      }
+    },
+    "/api/performance/round-robin": {
+      "get": {
+        "summary": "Return Round Robin live-test metadata",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "Default workload and field explanations, without measurements" } }
+      },
+      "post": {
+        "summary": "Run a live Round Robin end-to-end load test",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "New measurements and average" }, "409": { "description": "Gateway mode mismatch or another test is running" } }
+      }
+    },
+    "/api/performance/weighted": {
+      "get": {
+        "summary": "Return Weighted live-test metadata",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "Default workload and field explanations, without measurements" } }
+      },
+      "post": {
+        "summary": "Run a live Smooth Weighted Round Robin end-to-end load test",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "New measurements and average" }, "409": { "description": "Gateway mode mismatch or another test is running" } }
+      }
+    },
+    "/api/performance/load": {
+      "get": {
+        "summary": "Return Load-based live-test metadata",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "Default workload and field explanations, without measurements" } }
+      },
+      "post": {
+        "summary": "Run a live Load-based end-to-end load test",
+        "servers": [{ "url": "http://localhost:18090", "description": "Test Console" }],
+        "responses": { "200": { "description": "New measurements and average" }, "409": { "description": "Gateway mode mismatch or another test is running" } }
+      }
+    },
     "/nsmf-pdusession/v1/sm-contexts": {
       "post": {
         "summary": "Create SM Context",

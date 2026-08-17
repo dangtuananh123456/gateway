@@ -34,7 +34,8 @@ func TestApplicationComposesAndStopsAllComponentsRepeatedly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApplicationWithDependencies() error = %v", err)
 	}
-	if proxy, ok := application.handler.(*Proxy); !ok || proxy.transport != transport {
+	apiHandler, ok := application.handler.(*APIHandler)
+	if !ok || apiHandler.proxy.(*Proxy).transport != transport {
 		t.Fatal("proxy does not use the injected shared transport")
 	}
 

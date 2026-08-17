@@ -23,7 +23,7 @@ pdu:
 
 routing:
   # Supported values: round_robin, weighted, load.
-  mode: round_robin
+  mode: weighted
 
 discovery:
   hostname: pdu-session

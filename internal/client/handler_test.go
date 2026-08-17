@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dangtuananh123456/gateway/internal/loadtest"
 	"github.com/dangtuananh123456/gateway/internal/requestlog"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
@@ -99,6 +100,87 @@ func TestHandlerPreservesGatewayErrorAsInspectableResult(t *testing.T) {
 	if response.Code != http.StatusOK || result.StatusCode != http.StatusServiceUnavailable ||
 		!strings.Contains(result.Body, "NO_BACKEND_AVAILABLE") {
 		t.Errorf("bridge=%d result=%+v", response.Code, result)
+	}
+}
+
+func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
+	handler := newTestHandler(t, doerFunc(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case constants.GatewayBackendsPath:
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"routingMode":"round_robin"}`)),
+				Header:     make(http.Header),
+			}, nil
+		case constants.GatewayStatsPath:
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"cpuPercent":95.5,"ramUsageBytes":31457280,"ramUsageMiB":30.0,"ramPeakMiB":30.0,"totalCpuTimeMillis":5000}`)),
+				Header:     make(http.Header),
+			}, nil
+		default:
+			t.Errorf("unexpected gateway request path = %q", request.URL.Path)
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+				Header:     make(http.Header),
+			}, nil
+		}
+	}))
+	var runnerCalls atomic.Int64
+	handler.performanceRunner = performanceRunnerFunc(func(_ context.Context, cfg loadtest.Config) (loadtest.Result, error) {
+		call := runnerCalls.Add(1)
+		if cfg.Target != "http://gateway:8080"+constants.CreateSMContextPath {
+			t.Errorf("load target = %q", cfg.Target)
+		}
+		return loadtest.Result{
+			SuccessfulTPS:    float64(call * 100),
+			LatencyP50Millis: float64(call * 10),
+			LatencyP95Millis: float64(call * 20),
+			LatencyP99Millis: float64(call * 30),
+			FailedRequests:   uint64(call),
+		}, nil
+	})
+
+	metadataResponse := httptest.NewRecorder()
+	handler.ServeHTTP(metadataResponse, httptest.NewRequest(http.MethodGet, constants.ClientPerformanceRoundRobinPath, nil))
+	var metadata performanceReport
+	if err := json.NewDecoder(metadataResponse.Body).Decode(&metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if metadataResponse.Code != http.StatusOK || len(metadata.Measurements) != 0 ||
+		metadata.Environment.Runs != 3 || metadata.Environment.ConcurrentStreams != 200 {
+		t.Errorf("metadata status=%d report=%+v", metadataResponse.Code, metadata)
+	}
+
+	input := `{"runs":2,"warmupSeconds":1,"durationSeconds":1,"connections":1,"streamsPerConnection":2,"requestTimeoutSeconds":1}`
+	runResponse := httptest.NewRecorder()
+	handler.ServeHTTP(runResponse, httptest.NewRequest(
+		http.MethodPost,
+		constants.ClientPerformanceRoundRobinPath,
+		strings.NewReader(input),
+	))
+	var report performanceReport
+	if err := json.NewDecoder(runResponse.Body).Decode(&report); err != nil {
+		t.Fatalf("decode live report: %v body=%q", err, runResponse.Body.String())
+	}
+	if runResponse.Code != http.StatusOK || report.Algorithm != "round_robin" ||
+		len(report.Measurements) != 3 || report.MeasuredAt == "" || runnerCalls.Load() != 3 {
+		t.Fatalf("live status=%d calls=%d report=%+v", runResponse.Code, runnerCalls.Load(), report)
+	}
+	average := report.Measurements[2]
+	if !average.Average || average.SuccessfulTPS != 250 || average.FailedRequests != 3 {
+		t.Errorf("average = %+v", average)
+	}
+
+	mismatch := httptest.NewRecorder()
+	handler.ServeHTTP(mismatch, httptest.NewRequest(
+		http.MethodPost,
+		constants.ClientPerformanceWeightedPath,
+		strings.NewReader(input),
+	))
+	if mismatch.Code != http.StatusConflict || !strings.Contains(mismatch.Body.String(), "round_robin") {
+		t.Errorf("mode mismatch status=%d body=%q", mismatch.Code, mismatch.Body.String())
 	}
 }
 
@@ -218,6 +300,7 @@ func TestNewHandlerAndMethodsValidateInputs(t *testing.T) {
 	for _, test := range []struct{ method, path, allow string }{
 		{http.MethodPost, "/api/config", http.MethodGet},
 		{http.MethodGet, "/api/request", http.MethodPost},
+		{http.MethodDelete, constants.ClientPerformanceRoundRobinPath, "GET, POST"},
 		{http.MethodPost, "/", http.MethodGet},
 	} {
 		response := httptest.NewRecorder()
@@ -232,6 +315,12 @@ type doerFunc func(*http.Request) (*http.Response, error)
 
 func (function doerFunc) Do(request *http.Request) (*http.Response, error) {
 	return function(request)
+}
+
+type performanceRunnerFunc func(context.Context, loadtest.Config) (loadtest.Result, error)
+
+func (function performanceRunnerFunc) Run(ctx context.Context, cfg loadtest.Config) (loadtest.Result, error) {
+	return function(ctx, cfg)
 }
 
 type zeroReader struct{}
