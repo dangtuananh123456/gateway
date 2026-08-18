@@ -19,6 +19,14 @@ type Config struct {
 	PDU       PDUConfig       `yaml:"pdu"`
 	Routing   RoutingConfig   `yaml:"routing"`
 	Discovery DiscoveryConfig `yaml:"discovery"`
+	Logging   LoggingConfig   `yaml:"logging"`
+}
+
+// LoggingConfig controls all process logging and the more expensive per-request
+// access log independently.
+type LoggingConfig struct {
+	Enabled          bool `yaml:"enabled"`
+	AccessLogEnabled bool `yaml:"access_log_enabled"`
 }
 
 // HTTPServerConfig controls an HTTP server lifecycle and request limits.

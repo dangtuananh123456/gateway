@@ -32,6 +32,7 @@ services:
     depends_on:
       - gateway
     environment:
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       CLIENT_ADDRESS: ":8090"
       CLIENT_GATEWAY_URL: http://gateway:8080
       CLIENT_REQUEST_TIMEOUT: 5s
@@ -58,6 +59,8 @@ services:
       - pdu-3
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18082
       GATEWAY_UPSTREAM_TIMEOUT: 4s
       ROUTING_MODE: load
@@ -79,6 +82,8 @@ services:
     <<: *pdu-common
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18082
       PDU_INSTANCE_ID: pdu-1
       PDU_PROCESSING_DELAY: 2s
@@ -91,6 +96,8 @@ services:
     <<: *pdu-common
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18082
       PDU_INSTANCE_ID: pdu-2
       PDU_PROCESSING_DELAY: 2s
@@ -103,6 +110,8 @@ services:
     <<: *pdu-common
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18082
       PDU_INSTANCE_ID: pdu-3
       PDU_PROCESSING_DELAY: 2s

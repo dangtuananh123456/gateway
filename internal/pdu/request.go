@@ -1,17 +1,23 @@
 package pdu
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"reflect"
 	"strings"
+	"sync"
 
+	"github.com/bytedance/sonic"
 	"github.com/dangtuananh123456/gateway/internal/model"
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
+
+var prepareCreateSMContextCodec = sync.OnceValue(func() error {
+	return sonic.Pretouch(reflect.TypeFor[model.CreateSMContextRequest]())
+})
 
 type requestError struct {
 	cause  constants.ErrorCause
@@ -41,14 +47,15 @@ func decodeCreateSMContext(
 		request.Body,
 		constants.CreateSMContextMaxBodyBytes,
 	)
-	decoder := json.NewDecoder(request.Body)
-
-	var payload model.CreateSMContextRequest
-	if err := decoder.Decode(&payload); err != nil {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
 		return model.CreateSMContextRequest{}, decodeJSONError(err)
 	}
-	if err := ensureJSONDocumentEnds(decoder); err != nil {
-		return model.CreateSMContextRequest{}, err
+	var payload model.CreateSMContextRequest
+	// ConfigStd keeps encoding/json-compatible behavior while its compiled
+	// decoder removes reflection from this hot request path.
+	if err := sonic.ConfigStd.Unmarshal(body, &payload); err != nil {
+		return model.CreateSMContextRequest{}, decodeJSONError(err)
 	}
 	if err := validateCreateSMContext(payload); err != nil {
 		return model.CreateSMContextRequest{}, err
@@ -65,21 +72,6 @@ func validateJSONContentType(contentType string) *requestError {
 		)
 	}
 	return nil
-}
-
-func ensureJSONDocumentEnds(decoder *json.Decoder) *requestError {
-	var trailing any
-	err := decoder.Decode(&trailing)
-	if errors.Is(err, io.EOF) {
-		return nil
-	}
-	if err != nil {
-		return decodeJSONError(err)
-	}
-	return newRequestError(
-		constants.CauseInvalidRequest,
-		"request body must contain exactly one JSON object",
-	)
 }
 
 func decodeJSONError(err error) *requestError {

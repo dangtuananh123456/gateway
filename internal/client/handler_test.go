@@ -133,6 +133,13 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		if cfg.Target != "http://gateway:8080"+constants.CreateSMContextPath {
 			t.Errorf("load target = %q", cfg.Target)
 		}
+		wantMinimum := uint64(performanceTargetSuccessful)
+		if call == 1 {
+			wantMinimum = performanceWarmupSuccessful
+		}
+		if cfg.MinimumSuccessfulRequests != wantMinimum {
+			t.Errorf("minimum successful requests on call %d = %d, want %d", call, cfg.MinimumSuccessfulRequests, wantMinimum)
+		}
 		return loadtest.Result{
 			SuccessfulTPS:    float64(call * 100),
 			LatencyP50Millis: float64(call * 10),
@@ -149,11 +156,12 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		t.Fatalf("decode metadata: %v", err)
 	}
 	if metadataResponse.Code != http.StatusOK || len(metadata.Measurements) != 0 ||
-		metadata.Environment.Runs != 3 || metadata.Environment.ConcurrentStreams != 200 {
+		metadata.Environment.Runs != 3 || metadata.Environment.ConcurrentStreams != 480 ||
+		metadata.Environment.TargetRequests != 15000 || metadata.Environment.TargetSuccessfulRequests != 12000 {
 		t.Errorf("metadata status=%d report=%+v", metadataResponse.Code, metadata)
 	}
 
-	input := `{"runs":2,"warmupSeconds":1,"durationSeconds":1,"connections":1,"streamsPerConnection":2,"requestTimeoutSeconds":1}`
+	input := `{"runs":2,"warmupSeconds":1,"durationSeconds":1,"connections":15,"streamsPerConnection":1000,"requestTimeoutSeconds":1}`
 	runResponse := httptest.NewRecorder()
 	handler.ServeHTTP(runResponse, httptest.NewRequest(
 		http.MethodPost,

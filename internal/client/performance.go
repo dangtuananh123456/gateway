@@ -18,11 +18,15 @@ import (
 
 const (
 	defaultPerformanceRuns        = 3
-	defaultPerformanceDuration    = 10
+	defaultPerformanceDuration    = 1
 	defaultPerformanceWarmup      = 5
-	defaultPerformanceConnections = 4
-	defaultPerformanceStreams     = 50
+	defaultPerformanceConnections = 15
+	defaultPerformanceStreams     = 32
 	defaultPerformanceTimeout     = 3
+	performanceTargetRequests     = 15000
+	performanceTargetSuccessful   = 12000
+	performanceWarmupRequests     = 1000
+	performanceWarmupSuccessful   = 800
 )
 
 type performanceRunner interface {
@@ -48,28 +52,33 @@ type performanceResourceSummary struct {
 }
 
 type performanceEnvironment struct {
-	Runs                  int    `json:"runs"`
-	WarmupSeconds         int    `json:"warmupSeconds"`
-	DurationSeconds       int    `json:"durationSeconds"`
-	Connections           int    `json:"connections"`
-	StreamsPerConnection  int    `json:"streamsPerConnection"`
-	ConcurrentStreams     int    `json:"concurrentStreams"`
-	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
-	Protocol              string `json:"protocol"`
+	Runs                     int    `json:"runs"`
+	WarmupSeconds            int    `json:"warmupSeconds"`
+	DurationSeconds          int    `json:"durationSeconds"`
+	TargetRequests           int    `json:"targetRequests"`
+	TargetSuccessfulRequests int    `json:"targetSuccessfulRequests"`
+	Connections              int    `json:"connections"`
+	StreamsPerConnection     int    `json:"streamsPerConnection"`
+	ConcurrentStreams        int    `json:"concurrentStreams"`
+	RequestTimeoutSeconds    int    `json:"requestTimeoutSeconds"`
+	Protocol                 string `json:"protocol"`
 }
 
 type performanceMeasurement struct {
-	Run                string            `json:"run"`
-	SuccessfulTPS      float64           `json:"successfulTps"`
-	LatencyP50Millis   float64           `json:"latencyP50Millis"`
-	LatencyP95Millis   float64           `json:"latencyP95Millis"`
-	LatencyP99Millis   float64           `json:"latencyP99Millis"`
-	FailedRequests     uint64            `json:"failedRequests"`
-	TotalRequests      uint64            `json:"totalRequests,omitempty"`
-	SuccessfulRequests uint64            `json:"successfulRequests,omitempty"`
-	Errors             map[string]uint64 `json:"errors,omitempty"`
-	FailedReason       string            `json:"failedReason,omitempty"`
-	Average            bool              `json:"average,omitempty"`
+	Run                   string            `json:"run"`
+	SuccessfulTPS         float64           `json:"successfulTps"`
+	LatencyP50Millis      float64           `json:"latencyP50Millis"`
+	LatencyP95Millis      float64           `json:"latencyP95Millis"`
+	LatencyP99Millis      float64           `json:"latencyP99Millis"`
+	FailedRequests        uint64            `json:"failedRequests"`
+	TotalRequests         uint64            `json:"totalRequests,omitempty"`
+	SentRequests          uint64            `json:"sentRequests"`
+	SuccessfulRequests    uint64            `json:"successfulRequests,omitempty"`
+	ActualDurationSeconds float64           `json:"actualDurationSeconds,omitempty"`
+	TargetMet             bool              `json:"targetMet"`
+	Errors                map[string]uint64 `json:"errors,omitempty"`
+	FailedReason          string            `json:"failedReason,omitempty"`
+	Average               bool              `json:"average,omitempty"`
 }
 
 type performanceRunRequest struct {
@@ -88,6 +97,7 @@ var performanceFieldExplanations = map[string]string{
 	"latencyP95Millis": "95% request thành công có latency nhỏ hơn hoặc bằng giá trị này.",
 	"latencyP99Millis": "99% request thành công có latency nhỏ hơn hoặc bằng giá trị này, dùng để quan sát tail latency.",
 	"failedRequests":   "Request lỗi (chủ yếu do in-flight streams bị timeout/cutoff khi kết thúc cửa sổ đo; 0 lỗi HTTP 5xx).",
+	"sentRequests":     "Số request đã được ghi thật lên kết nối h2c trong cửa sổ một giây.",
 }
 
 var performanceAlgorithms = map[string]struct {
@@ -117,21 +127,23 @@ func performanceMetadata(path string, input performanceRunRequest) performanceRe
 		DisplayName: algorithm.name,
 		Route:       path,
 		Environment: performanceEnvironment{
-			Runs:                  input.Runs,
-			WarmupSeconds:         input.WarmupSeconds,
-			DurationSeconds:       input.DurationSeconds,
-			Connections:           input.Connections,
-			StreamsPerConnection:  input.StreamsPerConnection,
-			ConcurrentStreams:     input.Connections * input.StreamsPerConnection,
-			RequestTimeoutSeconds: input.RequestTimeoutSeconds,
-			Protocol:              "HTTP/2 h2c",
+			Runs:                     input.Runs,
+			WarmupSeconds:            input.WarmupSeconds,
+			DurationSeconds:          input.DurationSeconds,
+			TargetRequests:           performanceTargetRequests,
+			TargetSuccessfulRequests: performanceTargetSuccessful,
+			Connections:              input.Connections,
+			StreamsPerConnection:     input.StreamsPerConnection,
+			ConcurrentStreams:        input.Connections * input.StreamsPerConnection,
+			RequestTimeoutSeconds:    input.RequestTimeoutSeconds,
+			Protocol:                 "HTTP/2 h2c",
 		},
 		Measurements: []performanceMeasurement{},
 		ObservedResources: performanceResourceSummary{
-			GatewayCPURange: "85,96% – 104,44%",
-			GatewayRAMPeak:  "~30 MiB / 1 GiB",
-			GatewayLimits:   "1.0 vCPU / 1 GiB RAM (Giới hạn tối đa 65%)",
-			ErrorAnalysis:   "100% request lỗi là in-flight streams bị timeout/canceled khi kết thúc cửa sổ đo; 0 lỗi HTTP 5xx.",
+			GatewayCPURange: "Chưa đo",
+			GatewayRAMPeak:  "Chưa đo",
+			GatewayLimits:   "4.0 vCPU / 1 GiB RAM",
+			ErrorAnalysis:   "Target: gửi đủ 15.000 request và nhận tối thiểu 12.000 HTTP 201 trong một giây.",
 		},
 		Fields: performanceFieldExplanations,
 	}
@@ -237,14 +249,12 @@ func (input performanceRunRequest) validate() error {
 		return errors.New("runs must be between 1 and 5")
 	case input.WarmupSeconds < 0 || input.WarmupSeconds > 30:
 		return errors.New("warmupSeconds must be between 0 and 30")
-	case input.DurationSeconds < 1 || input.DurationSeconds > 60:
-		return errors.New("durationSeconds must be between 1 and 60")
+	case input.DurationSeconds != 1:
+		return errors.New("durationSeconds must be exactly 1 for the 15,000 request acceptance test")
 	case input.Connections < 1 || input.Connections > 16:
 		return errors.New("connections must be between 1 and 16")
-	case input.StreamsPerConnection < 1 || input.StreamsPerConnection > 200:
-		return errors.New("streamsPerConnection must be between 1 and 200")
-	case input.Connections*input.StreamsPerConnection > 1000:
-		return errors.New("concurrent streams must not exceed 1000")
+	case input.StreamsPerConnection < 1 || input.StreamsPerConnection > constants.GatewayMaxConcurrentStreams:
+		return fmt.Errorf("streamsPerConnection must be between 1 and %d", constants.GatewayMaxConcurrentStreams)
 	case input.RequestTimeoutSeconds < 1 || input.RequestTimeoutSeconds > 30:
 		return errors.New("requestTimeoutSeconds must be between 1 and 30")
 	default:
@@ -282,12 +292,17 @@ func (handler *Handler) runPerformance(
 	target := *handler.gatewayURL
 	target.Path = constants.CreateSMContextPath
 	cfg := loadtest.Config{
-		Target:               target.String(),
-		Connections:          input.Connections,
-		StreamsPerConnection: input.StreamsPerConnection,
-		RequestTimeout:       time.Duration(input.RequestTimeoutSeconds) * time.Second,
+		Target:                    target.String(),
+		RequestCount:              performanceTargetRequests,
+		MinimumSuccessfulRequests: performanceTargetSuccessful,
+		Connections:               input.Connections,
+		StreamsPerConnection:      input.StreamsPerConnection,
+		RequestTimeout:            time.Duration(input.RequestTimeoutSeconds) * time.Second,
+		WarmupConnections:         true,
 	}
 	if input.WarmupSeconds > 0 {
+		cfg.RequestCount = performanceWarmupRequests
+		cfg.MinimumSuccessfulRequests = performanceWarmupSuccessful
 		cfg.Duration = time.Duration(input.WarmupSeconds) * time.Second
 		if _, err := handler.performanceRunner.Run(ctx, cfg); err != nil {
 			return performanceReport{}, err
@@ -302,6 +317,8 @@ func (handler *Handler) runPerformance(
 	var peakMeasuredRAM float64 = 0
 
 	for run := 1; run <= input.Runs; run++ {
+		cfg.RequestCount = performanceTargetRequests
+		cfg.MinimumSuccessfulRequests = performanceTargetSuccessful
 		cfg.Duration = time.Duration(input.DurationSeconds) * time.Second
 		statsBefore, _ := handler.gatewayStats(ctx)
 		timeBefore := time.Now()
@@ -342,16 +359,19 @@ func (handler *Handler) runPerformance(
 		}
 
 		report.Measurements = append(report.Measurements, performanceMeasurement{
-			Run:                strconv.Itoa(run),
-			SuccessfulTPS:      result.SuccessfulTPS,
-			LatencyP50Millis:   result.LatencyP50Millis,
-			LatencyP95Millis:   result.LatencyP95Millis,
-			LatencyP99Millis:   result.LatencyP99Millis,
-			FailedRequests:     result.FailedRequests,
-			TotalRequests:      result.TotalRequests,
-			SuccessfulRequests: result.SuccessfulRequests,
-			Errors:             result.Errors,
-			FailedReason:       formatFailedReason(result.Errors, result.FailedRequests),
+			Run:                   strconv.Itoa(run),
+			SuccessfulTPS:         result.SuccessfulTPS,
+			LatencyP50Millis:      result.LatencyP50Millis,
+			LatencyP95Millis:      result.LatencyP95Millis,
+			LatencyP99Millis:      result.LatencyP99Millis,
+			FailedRequests:        result.FailedRequests,
+			TotalRequests:         result.TotalRequests,
+			SentRequests:          result.SentRequests,
+			SuccessfulRequests:    result.SuccessfulRequests,
+			ActualDurationSeconds: result.DurationSeconds,
+			TargetMet:             result.TargetMet,
+			Errors:                result.Errors,
+			FailedReason:          formatTargetResult(result),
 		})
 	}
 	report.Measurements = append(report.Measurements, averageMeasurement(report.Measurements))
@@ -364,49 +384,81 @@ func (handler *Handler) runPerformance(
 		report.ObservedResources.GatewayRAMPeak = fmt.Sprintf("%.1f MiB / 1 GiB (%.1f%%)", peakMeasuredRAM, (peakMeasuredRAM/1024)*100)
 	}
 	if len(report.Measurements) > 0 {
-		avgFailed := report.Measurements[len(report.Measurements)-1].FailedRequests
-		report.ObservedResources.ErrorAnalysis = fmt.Sprintf("100%% request lỗi là in-flight streams bị timeout khi kết thúc cửa sổ đo (~%d reqs); 0 lỗi 5xx.", avgFailed)
+		average := report.Measurements[len(report.Measurements)-1]
+		switch {
+		case average.TargetMet:
+			report.ObservedResources.ErrorAnalysis = "PASS: gửi đủ 15.000 request và nhận tối thiểu 12.000 HTTP 201 trong một giây."
+		case average.SentRequests < performanceTargetRequests:
+			report.ObservedResources.ErrorAnalysis = fmt.Sprintf(
+				"Chỉ ghi được trung bình %d/15.000 request lên h2c trong một giây.",
+				average.SentRequests,
+			)
+		default:
+			report.ObservedResources.ErrorAnalysis = fmt.Sprintf(
+				"Đã gửi đủ 15.000 request nhưng chỉ có trung bình %d/12.000 response thành công trong một giây.",
+				average.SuccessfulRequests,
+			)
+		}
 	}
 
 	return report, nil
 }
 
-func formatFailedReason(errors map[string]uint64, failed uint64) string {
-	if failed == 0 {
+func formatTargetResult(result loadtest.Result) string {
+	if result.TargetMet {
 		return ""
 	}
-	cutoff := errors["timeout"] + errors["canceled"]
-	if cutoff == failed && failed > 0 {
-		return fmt.Sprintf("100%% in-flight cutoff lúc hết thời gian đo (%d streams)", failed)
+	if result.SentRequests < result.TargetRequests {
+		return fmt.Sprintf(
+			"Chỉ ghi được %d/%d request lên h2c trong %.3fs",
+			result.SentRequests,
+			result.TargetRequests,
+			result.TargetDurationSeconds,
+		)
 	}
-	return fmt.Sprintf("%d in-flight cutoff (0 lỗi 5xx)", failed)
+	return fmt.Sprintf(
+		"Chỉ có %d/%d response HTTP 201 hoàn tất trong %.3fs",
+		result.SuccessfulRequests,
+		result.TargetSuccessfulRequests,
+		result.TargetDurationSeconds,
+	)
 }
 
 func averageMeasurement(measurements []performanceMeasurement) performanceMeasurement {
-	average := performanceMeasurement{Run: "Trung bình", Average: true}
+	average := performanceMeasurement{Run: "Trung bình", Average: true, TargetMet: true}
 	var failed float64
 	var total float64
 	var successful float64
+	var sent float64
 	for _, measurement := range measurements {
 		total += float64(measurement.TotalRequests)
 		successful += float64(measurement.SuccessfulRequests)
+		sent += float64(measurement.SentRequests)
 		average.SuccessfulTPS += measurement.SuccessfulTPS
 		average.LatencyP50Millis += measurement.LatencyP50Millis
 		average.LatencyP95Millis += measurement.LatencyP95Millis
 		average.LatencyP99Millis += measurement.LatencyP99Millis
+		average.ActualDurationSeconds += measurement.ActualDurationSeconds
+		average.TargetMet = average.TargetMet && measurement.TargetMet
 		failed += float64(measurement.FailedRequests)
 	}
 	count := float64(len(measurements))
 	if count > 0 {
 		average.TotalRequests = uint64(math.Round(total / count))
 		average.SuccessfulRequests = uint64(math.Round(successful / count))
+		average.SentRequests = uint64(math.Round(sent / count))
 		average.SuccessfulTPS /= count
 		average.LatencyP50Millis /= count
 		average.LatencyP95Millis /= count
 		average.LatencyP99Millis /= count
+		average.ActualDurationSeconds /= count
 		average.FailedRequests = uint64(math.Round(failed / count))
-		if average.FailedRequests > 0 {
-			average.FailedReason = "100% in-flight timeout lúc kết thúc cửa sổ đo"
+		if !average.TargetMet {
+			average.FailedReason = fmt.Sprintf(
+				"Trung bình sent=%d/15.000, success=%d/12.000 trong 1s",
+				average.SentRequests,
+				average.SuccessfulRequests,
+			)
 		}
 	}
 	return average

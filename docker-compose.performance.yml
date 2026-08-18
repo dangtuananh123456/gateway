@@ -15,6 +15,8 @@ services:
       - pdu-session
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-false}
+      LOG_ENABLED: ${LOG_ENABLED:-false}
       LOG_LEVEL: error
       PPROF_ADDRESS: ":6060"
       GATEWAY_PUBLIC_URL: http://localhost:18085
@@ -38,7 +40,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "${GATEWAY_CPU_LIMIT:-4.0}"
           memory: 1G
 
   pdu-session:
@@ -52,6 +54,8 @@ services:
       - "8081"
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-false}
+      LOG_ENABLED: ${LOG_ENABLED:-false}
       LOG_LEVEL: error
       GATEWAY_PUBLIC_URL: http://localhost:18085
       PDU_PROCESSING_DELAY: 0s

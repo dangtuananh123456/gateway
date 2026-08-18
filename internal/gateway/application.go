@@ -17,7 +17,8 @@ import (
 	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
-// SharedTransport is owned by Application and reused for probes and proxying.
+// SharedTransport is an Application-owned HTTP pool. Production uses separate
+// instances for data-plane proxy traffic and control-plane discovery probes.
 type SharedTransport interface {
 	http.RoundTripper
 	CloseIdleConnections()
@@ -28,32 +29,35 @@ type ServerRunner func(context.Context, ServerConfig, http.Handler) error
 
 // ApplicationDependencies are replaceable infrastructure boundaries for tests.
 type ApplicationDependencies struct {
-	Lookup    discovery.IPAddressLookup
-	Transport SharedTransport
-	Serve     ServerRunner
+	Lookup             discovery.IPAddressLookup
+	Transport          SharedTransport
+	DiscoveryTransport SharedTransport
+	Serve              ServerRunner
 }
 
 // Application owns the fully composed Gateway process lifecycle.
 type Application struct {
-	scheduler *discovery.Scheduler
-	collector *discovery.Collector
-	transport SharedTransport
-	server    ServerRunner
-	serverCfg ServerConfig
-	handler   http.Handler
-	logger    *slog.Logger
+	scheduler  *discovery.Scheduler
+	collector  *discovery.Collector
+	transports []SharedTransport
+	server     ServerRunner
+	serverCfg  ServerConfig
+	handler    http.Handler
 }
 
 // NewApplication creates a production Gateway application.
 func NewApplication(cfg config.Config, logger *slog.Logger) (*Application, error) {
 	transport := NewSharedTransport()
+	discoveryTransport := NewDiscoveryTransport()
 	application, err := NewApplicationWithDependencies(cfg, logger, ApplicationDependencies{
-		Lookup:    net.DefaultResolver,
-		Transport: transport,
-		Serve:     Run,
+		Lookup:             net.DefaultResolver,
+		Transport:          transport,
+		DiscoveryTransport: discoveryTransport,
+		Serve:              Run,
 	})
 	if err != nil {
 		transport.CloseIdleConnections()
+		discoveryTransport.CloseIdleConnections()
 		return nil, err
 	}
 	return application, nil
@@ -74,6 +78,15 @@ func NewApplicationWithDependencies(
 	}
 	if dependencies.Transport == nil {
 		return nil, errors.New("create Gateway application: transport must not be nil")
+	}
+	discoveryTransport := dependencies.DiscoveryTransport
+	transports := []SharedTransport{dependencies.Transport}
+	if discoveryTransport == nil {
+		// Backward-compatible test/integration fallback. Production always
+		// supplies a dedicated control-plane transport.
+		discoveryTransport = dependencies.Transport
+	} else {
+		transports = append(transports, discoveryTransport)
 	}
 	if dependencies.Serve == nil {
 		return nil, errors.New("create Gateway application: server runner must not be nil")
@@ -104,7 +117,7 @@ func NewApplicationWithDependencies(
 	if err != nil {
 		return nil, err
 	}
-	collector, err := discovery.NewCollector(candidates, dependencies.Transport, discovery.CollectorConfig{
+	collector, err := discovery.NewCollector(candidates, discoveryTransport, discovery.CollectorConfig{
 		HealthInterval:  cfg.Discovery.HealthInterval,
 		HealthTimeout:   cfg.Discovery.HealthTimeout,
 		MetricsInterval: cfg.Discovery.MetricsInterval,
@@ -137,23 +150,47 @@ func NewApplicationWithDependencies(
 	}
 
 	return &Application{
-		scheduler: scheduler,
-		collector: collector,
-		transport: dependencies.Transport,
-		server:    dependencies.Serve,
-		serverCfg: serverConfigFrom(cfg.Gateway.Server),
-		handler:   apiHandler,
-		logger:    logger,
+		scheduler:  scheduler,
+		collector:  collector,
+		transports: transports,
+		server:     dependencies.Serve,
+		serverCfg:  serverConfigFrom(cfg.Gateway.Server),
+		handler: requestlog.Wrap(
+			cfg.Logging.Enabled && cfg.Logging.AccessLogEnabled,
+			logger,
+			"gateway",
+			apiHandler,
+		),
 	}, nil
 }
 
-// NewSharedTransport creates the one HTTP transport used by all PDU traffic.
+// NewSharedTransport creates the h2c data-plane pool shared by all proxied PDU
+// requests. HTTP/2 multiplexing keeps the connection count bounded while the
+// non-strict setting lets the transport open another connection if every
+// existing connection has reached the peer's stream limit.
 func NewSharedTransport() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	transport.Protocols = h2cOnlyProtocols()
 	transport.DisableCompression = true
 	transport.MaxIdleConns = constants.UpstreamMaxIdleConnections
 	transport.MaxIdleConnsPerHost = constants.UpstreamMaxIdleConnectionsPerHost
+	transport.MaxConnsPerHost = constants.UpstreamMaxConnectionsPerHost
+	transport.HTTP2 = &http.HTTP2Config{StrictMaxConcurrentRequests: false}
+	return transport
+}
+
+// NewDiscoveryTransport reserves a small h2c pool for health and metrics
+// probes so control-plane liveness cannot queue behind proxied traffic.
+func NewDiscoveryTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.Protocols = h2cOnlyProtocols()
+	transport.DisableCompression = true
+	transport.MaxIdleConns = constants.DiscoveryMaxIdleConnections
+	transport.MaxIdleConnsPerHost = constants.DiscoveryMaxIdleConnectionsPerHost
+	transport.MaxConnsPerHost = constants.DiscoveryMaxConnectionsPerHost
+	transport.HTTP2 = &http.HTTP2Config{StrictMaxConcurrentRequests: false}
 	return transport
 }
 
@@ -164,7 +201,11 @@ func (application *Application) Run(ctx context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer application.transport.CloseIdleConnections()
+	defer func() {
+		for _, transport := range application.transports {
+			transport.CloseIdleConnections()
+		}
+	}()
 
 	type componentResult struct {
 		name string
@@ -185,7 +226,7 @@ func (application *Application) Run(ctx context.Context) error {
 		return application.server(
 			componentCtx,
 			application.serverCfg,
-			requestlog.New(application.logger, "gateway", application.handler),
+			application.handler,
 		)
 	})
 

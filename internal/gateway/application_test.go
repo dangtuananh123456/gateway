@@ -20,6 +20,7 @@ import (
 func TestApplicationComposesAndStopsAllComponentsRepeatedly(t *testing.T) {
 	lookup := &applicationLookup{}
 	transport := &applicationTransport{}
+	discoveryTransport := &applicationTransport{}
 	handlers := make(chan http.Handler, 3)
 	server := ServerRunner(func(ctx context.Context, _ ServerConfig, handler http.Handler) error {
 		handlers <- handler
@@ -29,7 +30,10 @@ func TestApplicationComposesAndStopsAllComponentsRepeatedly(t *testing.T) {
 	application, err := NewApplicationWithDependencies(
 		applicationTestConfig(),
 		discardLogger(),
-		ApplicationDependencies{Lookup: lookup, Transport: transport, Serve: server},
+		ApplicationDependencies{
+			Lookup: lookup, Transport: transport,
+			DiscoveryTransport: discoveryTransport, Serve: server,
+		},
 	)
 	if err != nil {
 		t.Fatalf("NewApplicationWithDependencies() error = %v", err)
@@ -85,10 +89,19 @@ func TestApplicationComposesAndStopsAllComponentsRepeatedly(t *testing.T) {
 		if got := transport.closed.Load(); got != int64(run) {
 			t.Errorf("run %d CloseIdleConnections calls = %d, want %d", run, got, run)
 		}
+		if got := discoveryTransport.closed.Load(); got != int64(run) {
+			t.Errorf("run %d discovery CloseIdleConnections calls = %d, want %d", run, got, run)
+		}
 	}
-	if transport.healthCalls.Load() == 0 || transport.metricsCalls.Load() == 0 || transport.proxyCalls.Load() == 0 {
-		t.Errorf("shared transport calls: health=%d metrics=%d proxy=%d, want all non-zero",
+	if transport.proxyCalls.Load() == 0 || transport.healthCalls.Load() != 0 || transport.metricsCalls.Load() != 0 {
+		t.Errorf("data transport calls: health=%d metrics=%d proxy=%d, want only proxy calls",
 			transport.healthCalls.Load(), transport.metricsCalls.Load(), transport.proxyCalls.Load())
+	}
+	if discoveryTransport.healthCalls.Load() == 0 || discoveryTransport.metricsCalls.Load() == 0 ||
+		discoveryTransport.proxyCalls.Load() != 0 {
+		t.Errorf("discovery transport calls: health=%d metrics=%d proxy=%d, want only probe calls",
+			discoveryTransport.healthCalls.Load(), discoveryTransport.metricsCalls.Load(),
+			discoveryTransport.proxyCalls.Load())
 	}
 }
 
@@ -269,17 +282,40 @@ func TestApplicationRejectsNilRunContext(t *testing.T) {
 func TestNewSharedTransportIsTunedForReuse(t *testing.T) {
 	transport := NewSharedTransport()
 	t.Cleanup(transport.CloseIdleConnections)
-	if transport.Proxy != nil {
-		t.Error("Proxy is configured, want direct internal PDU connections")
+	if transport.Proxy != nil || !transport.DisableCompression {
+		t.Errorf("has_proxy/compression = %t/%t, want false/true", transport.Proxy != nil, transport.DisableCompression)
 	}
-	if !transport.DisableCompression {
-		t.Error("DisableCompression = false, want true to preserve upstream payload")
+	if transport.Protocols == nil || !transport.Protocols.UnencryptedHTTP2() ||
+		transport.Protocols.HTTP1() || transport.Protocols.HTTP2() {
+		t.Errorf("Protocols = %v, want h2c only", transport.Protocols)
 	}
-	if transport.MaxIdleConns != constants.UpstreamMaxIdleConnections {
-		t.Errorf("MaxIdleConns = %d, want %d", transport.MaxIdleConns, constants.UpstreamMaxIdleConnections)
+	if transport.MaxIdleConns != constants.UpstreamMaxIdleConnections ||
+		transport.MaxIdleConnsPerHost != constants.UpstreamMaxIdleConnectionsPerHost ||
+		transport.MaxConnsPerHost != constants.UpstreamMaxConnectionsPerHost {
+		t.Errorf("pool = %d/%d/%d, want %d/%d/%d",
+			transport.MaxIdleConns, transport.MaxIdleConnsPerHost, transport.MaxConnsPerHost,
+			constants.UpstreamMaxIdleConnections, constants.UpstreamMaxIdleConnectionsPerHost,
+			constants.UpstreamMaxConnectionsPerHost)
 	}
-	if transport.MaxIdleConnsPerHost != constants.UpstreamMaxIdleConnectionsPerHost {
-		t.Errorf("MaxIdleConnsPerHost = %d, want %d", transport.MaxIdleConnsPerHost, constants.UpstreamMaxIdleConnectionsPerHost)
+	if transport.HTTP2 == nil || transport.HTTP2.StrictMaxConcurrentRequests {
+		t.Errorf("HTTP2 = %+v, want non-strict multiplexed pool", transport.HTTP2)
+	}
+}
+
+func TestNewDiscoveryTransportUsesIndependentBoundedPool(t *testing.T) {
+	transport := NewDiscoveryTransport()
+	t.Cleanup(transport.CloseIdleConnections)
+	if transport.Protocols == nil || !transport.Protocols.UnencryptedHTTP2() ||
+		transport.Protocols.HTTP1() || transport.Protocols.HTTP2() {
+		t.Errorf("Protocols = %v, want h2c only", transport.Protocols)
+	}
+	if transport.MaxIdleConns != constants.DiscoveryMaxIdleConnections ||
+		transport.MaxIdleConnsPerHost != constants.DiscoveryMaxIdleConnectionsPerHost ||
+		transport.MaxConnsPerHost != constants.DiscoveryMaxConnectionsPerHost {
+		t.Errorf("discovery pool = %d/%d/%d, want %d/%d/%d",
+			transport.MaxIdleConns, transport.MaxIdleConnsPerHost, transport.MaxConnsPerHost,
+			constants.DiscoveryMaxIdleConnections, constants.DiscoveryMaxIdleConnectionsPerHost,
+			constants.DiscoveryMaxConnectionsPerHost)
 	}
 }
 

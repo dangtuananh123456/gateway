@@ -143,6 +143,7 @@ func (registry *Registry) MarkHealthSuccess(
 		return fmt.Errorf("%w: %s", ErrCandidateNotFound, address)
 	}
 	if observedAt.Before(candidate.LastHealthSuccessAt) ||
+		observedAt.Before(candidate.LastFailureAt) ||
 		(instanceID != candidate.InstanceID && observedAt.Before(candidate.LastIdentityAt)) {
 		return nil
 	}
@@ -213,7 +214,9 @@ func (registry *Registry) MarkUnhealthy(address netip.AddrPort, observedAt time.
 	if !found {
 		return fmt.Errorf("%w: %s", ErrCandidateNotFound, address)
 	}
-	if observationIsOlder(candidate, observedAt) {
+	// Only health observations determine liveness. A newer metrics sample must
+	// not hide a failed health probe merely because /metrics responded later.
+	if observedAt.Before(candidate.LastHealthSuccessAt) || observedAt.Before(candidate.LastFailureAt) {
 		return nil
 	}
 	candidate.Healthy = false

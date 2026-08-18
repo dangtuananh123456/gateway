@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 // ServerConfig controls one PDU Session HTTP server lifecycle.
@@ -18,7 +20,7 @@ type ServerConfig struct {
 	MaxHeaderBytes    int
 }
 
-// Run serves HTTP/1.1 requests until the server fails or ctx is canceled.
+// Run serves unencrypted HTTP/2 requests until the server fails or ctx is canceled.
 func Run(ctx context.Context, cfg ServerConfig, handler http.Handler) error {
 	if handler == nil {
 		return errors.New("run PDU server: handler must not be nil")
@@ -38,16 +40,16 @@ func serve(
 	handler http.Handler,
 	listener net.Listener,
 ) error {
-	protocols := new(http.Protocols)
-	protocols.SetHTTP1(true)
-
 	httpServer := &http.Server{
 		Addr:              cfg.Address,
 		Handler:           handler,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
-		Protocols:         protocols,
+		Protocols:         h2cOnlyProtocols(),
+		HTTP2: &http.HTTP2Config{
+			MaxConcurrentStreams: constants.PDUMaxConcurrentStreams,
+		},
 		BaseContext: func(net.Listener) context.Context {
 			return context.WithoutCancel(ctx)
 		},
@@ -62,6 +64,7 @@ func serve(
 	case err := <-serveErrors:
 		return normalizeServeError(err)
 	case <-ctx.Done():
+		httpServer.SetKeepAlivesEnabled(false)
 		shutdownCtx, cancel := context.WithTimeout(
 			context.WithoutCancel(ctx),
 			cfg.ShutdownTimeout,
@@ -76,6 +79,12 @@ func serve(
 
 		return normalizeServeError(<-serveErrors)
 	}
+}
+
+func h2cOnlyProtocols() *http.Protocols {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	return protocols
 }
 
 func normalizeServeError(err error) error {

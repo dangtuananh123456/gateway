@@ -16,7 +16,7 @@ func TestMain(testMain *testing.M) {
 	goleak.VerifyTestMain(testMain)
 }
 
-func TestServerAcceptsHTTP1(t *testing.T) {
+func TestServerAcceptsH2C(t *testing.T) {
 	protocol := make(chan int, 1)
 	running := startPDUServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		protocol <- request.ProtoMajor
@@ -25,19 +25,34 @@ func TestServerAcceptsHTTP1(t *testing.T) {
 
 	response, err := running.client.Get(running.url)
 	if err != nil {
-		t.Fatalf("send HTTP/1 request: %v", err)
+		t.Fatalf("send h2c request: %v", err)
 	}
 	response.Body.Close()
-	if response.StatusCode != http.StatusNoContent || response.ProtoMajor != 1 {
-		t.Errorf("response status/protocol = %d/HTTP%d, want 204/HTTP1", response.StatusCode, response.ProtoMajor)
+	if response.StatusCode != http.StatusNoContent || response.ProtoMajor != 2 {
+		t.Errorf("response status/protocol = %d/HTTP%d, want 204/HTTP2", response.StatusCode, response.ProtoMajor)
 	}
 	select {
 	case got := <-protocol:
-		if got != 1 {
-			t.Errorf("handler protocol = HTTP%d, want HTTP1", got)
+		if got != 2 {
+			t.Errorf("handler protocol = HTTP%d, want HTTP2", got)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for handler")
+	}
+}
+
+func TestServerRejectsHTTP1(t *testing.T) {
+	running := startPDUServer(t, http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	transport := &http.Transport{Protocols: protocols}
+	t.Cleanup(transport.CloseIdleConnections)
+	_, err := (&http.Client{Transport: transport, Timeout: time.Second}).Get(running.url)
+	if err == nil {
+		t.Fatal("HTTP/1.1 request error = nil, want protocol rejection")
 	}
 }
 
@@ -53,6 +68,7 @@ func TestServerMultipleStartStopCycles(t *testing.T) {
 			}
 			response.Body.Close()
 
+			running.client.CloseIdleConnections()
 			running.cancel()
 			if err := waitForServer(t, running.done); err != nil {
 				t.Fatalf("shutdown server: %v", err)
@@ -191,10 +207,10 @@ func startPDUServer(t *testing.T, handler http.Handler) runningPDUServer {
 		close(stopped)
 	}()
 
-	transport := &http.Transport{DisableKeepAlives: true}
+	transport := &http.Transport{Protocols: h2cOnlyProtocols()}
 	t.Cleanup(func() {
-		cancel()
 		transport.CloseIdleConnections()
+		cancel()
 		select {
 		case <-stopped:
 		case <-time.After(2 * time.Second):
@@ -206,6 +222,13 @@ func startPDUServer(t *testing.T, handler http.Handler) runningPDUServer {
 		done:   done,
 		client: &http.Client{Transport: transport, Timeout: 2 * time.Second},
 		url:    "http://" + listener.Addr().String(),
+	}
+}
+
+func TestPDUProtocolsEnableOnlyUnencryptedHTTP2(t *testing.T) {
+	protocols := h2cOnlyProtocols()
+	if protocols.HTTP1() || protocols.HTTP2() || !protocols.UnencryptedHTTP2() {
+		t.Errorf("protocols = %v, want h2c only", protocols)
 	}
 }
 

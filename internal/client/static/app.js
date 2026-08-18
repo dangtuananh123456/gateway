@@ -73,12 +73,12 @@ function renderPerformance(report) {
   $('performance-title').textContent = report.displayName;
   $('performance-route').textContent = report.route;
   const environment = report.environment;
-  $('performance-environment').textContent = `${environment.protocol} · ${environment.durationSeconds}s/lần · ${environment.connections} connections · ${environment.streamsPerConnection} streams/connection · ${environment.concurrentStreams} concurrent streams`;
+  $('performance-environment').textContent = `${environment.protocol} · gửi ${environment.targetRequests} requests/${environment.durationSeconds}s · cần ≥ ${environment.targetSuccessfulRequests} HTTP 201 · ${environment.connections} connections · ${environment.streamsPerConnection} streams/connection · ${environment.concurrentStreams} concurrent streams`;
   
   if (report.observedResources) {
-    if ($('diag-cpu')) $('diag-cpu').textContent = report.observedResources.gatewayCpuRange || '85,96% – 104,44%';
-    if ($('diag-ram')) $('diag-ram').textContent = report.observedResources.gatewayRamPeak || '~30 MiB / 1 GiB';
-    if ($('diag-error')) $('diag-error').textContent = report.observedResources.errorAnalysis || 'In-flight cutoff';
+    if ($('diag-cpu')) $('diag-cpu').textContent = report.observedResources.gatewayCpuRange || 'Chưa đo';
+    if ($('diag-ram')) $('diag-ram').textContent = report.observedResources.gatewayRamPeak || 'Chưa đo / 1 GiB';
+    if ($('diag-error')) $('diag-error').textContent = report.observedResources.errorAnalysis || 'Chưa đo';
   }
 
   if (!report.measurements.length) {
@@ -87,8 +87,8 @@ function renderPerformance(report) {
   } else {
     $('performance-rows').innerHTML = report.measurements.map(measurement => {
       const errorNote = measurement.failedReason
-        ? `<span class="error-tag" title="${escapeHTML(measurement.failedReason)}">in-flight cutoff</span>`
-        : (measurement.failedRequests > 0 ? `<span class="error-tag" title="In-flight streams bị timeout khi kết thúc cửa sổ đo">in-flight cutoff</span>` : '');
+        ? `<span class="error-tag" title="${escapeHTML(measurement.failedReason)}">target missed</span>`
+        : (measurement.failedRequests > 0 ? `<span class="error-tag" title="Target vẫn đạt; các request còn lại chưa hoàn tất trong cửa sổ một giây">within allowance</span>` : '');
       return `
     <tr class="${measurement.average ? 'average-row' : ''}">
       <td>${escapeHTML(measurement.run)}</td>
@@ -96,7 +96,7 @@ function renderPerformance(report) {
       <td>${formatNumber(measurement.latencyP50Millis, 3)} ms</td>
       <td>${formatNumber(measurement.latencyP95Millis, 3)} ms</td>
       <td>${formatNumber(measurement.latencyP99Millis, 3)} ms</td>
-      <td>${formatNumber(measurement.failedRequests, 0)} ${errorNote}</td>
+      <td>${formatNumber(measurement.sentRequests, 0)} / ${formatNumber(measurement.failedRequests, 0)} ${errorNote}</td>
     </tr>
     `;
     }).join('');
@@ -104,7 +104,7 @@ function renderPerformance(report) {
   }
   const labels = {
     run: 'Lần đo', successfulTps: 'TPS thành công', latencyP50Millis: 'p50',
-    latencyP95Millis: 'p95', latencyP99Millis: 'p99', failedRequests: 'Request lỗi'
+    latencyP95Millis: 'p95', latencyP99Millis: 'p99', sentRequests: 'Request đã gửi', failedRequests: 'Request lỗi'
   };
   $('performance-fields').innerHTML = Object.entries(report.fields).map(([field, explanation]) => `
     <div><strong>${escapeHTML(labels[field] || field)}</strong><span>${escapeHTML(explanation)}</span></div>

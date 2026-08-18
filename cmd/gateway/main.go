@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,19 +16,19 @@ import (
 )
 
 func main() {
-	logger := logging.New(os.Stdout)
-	if err := run(logger); err != nil {
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "load gateway configuration:", err)
+		os.Exit(1)
+	}
+	logger := logging.NewWithEnabled(os.Stdout, cfg.Logging.Enabled)
+	if err := run(cfg, logger); err != nil {
 		logger.Error("gateway stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := config.LoadDefault()
-	if err != nil {
-		return err
-	}
-
+func run(cfg config.Config, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -41,6 +42,7 @@ func run(logger *slog.Logger) error {
 		"protocol", "h2c",
 		"routing_mode", cfg.Routing.Mode,
 		"discovery_hostname", cfg.Discovery.Hostname,
+		"access_log_enabled", cfg.Logging.Enabled && cfg.Logging.AccessLogEnabled,
 	)
 
 	application, err := gateway.NewApplication(cfg, logger)

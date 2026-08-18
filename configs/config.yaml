@@ -36,3 +36,9 @@ discovery:
   metrics_timeout: 100ms
   stale_ttl: 15s
   max_concurrency: 20
+
+logging:
+  # enabled=false disables lifecycle, discovery, error, and access logs.
+  enabled: true
+  # This flag controls only per-request access logs when logging is enabled.
+  access_log_enabled: true

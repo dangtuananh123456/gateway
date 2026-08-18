@@ -204,6 +204,26 @@ func TestProxyPropagatesClientCancellationToUpstream(t *testing.T) {
 	}
 }
 
+func TestBoundedUpstreamContextReusesEarlierCallerDeadline(t *testing.T) {
+	parent, stopParent := context.WithTimeout(context.Background(), time.Second)
+	defer stopParent()
+
+	bounded, cancel := boundedUpstreamContext(parent, 2*time.Second)
+	cancel()
+	if bounded != parent {
+		t.Fatal("bounded context did not reuse the earlier caller deadline")
+	}
+	if parent.Err() != nil {
+		t.Fatalf("no-op child cancellation canceled parent: %v", parent.Err())
+	}
+
+	bounded, cancel = boundedUpstreamContext(context.Background(), time.Second)
+	defer cancel()
+	if _, found := bounded.Deadline(); !found {
+		t.Fatal("bounded context has no deadline when caller supplied none")
+	}
+}
+
 func TestNewProxyValidatesDependencies(t *testing.T) {
 	candidates := registry.New()
 	selector := routing.NewRoundRobin()

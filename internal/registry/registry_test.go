@@ -98,6 +98,48 @@ func TestRegistryIgnoresStaleObservation(t *testing.T) {
 	}
 }
 
+func TestMetricsSuccessCannotMaskHealthFailure(t *testing.T) {
+	registry := New()
+	address := netip.MustParseAddrPort("10.0.0.1:8081")
+	base := testTime()
+	if _, err := registry.Upsert(address, base); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	if err := registry.MarkHealthSuccess(address, "pdu-1", base.Add(time.Second)); err != nil {
+		t.Fatalf("MarkHealthSuccess() error = %v", err)
+	}
+	if err := registry.MarkMetricsSuccess(address, Metadata{
+		InstanceID: "pdu-1", Weight: 1,
+	}, base.Add(3*time.Second)); err != nil {
+		t.Fatalf("MarkMetricsSuccess() error = %v", err)
+	}
+
+	// The health failure was observed before the later metrics response, but
+	// metrics are not a liveness signal and must not keep this PDU routable.
+	failedAt := base.Add(2 * time.Second)
+	if err := registry.MarkUnhealthy(address, failedAt); err != nil {
+		t.Fatalf("MarkUnhealthy() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 0 {
+		t.Fatalf("snapshot after health failure = %d, want 0", got)
+	}
+
+	// A delayed health-success result older than the failure cannot revive it.
+	if err := registry.MarkHealthSuccess(address, "pdu-1", base.Add(1500*time.Millisecond)); err != nil {
+		t.Fatalf("stale MarkHealthSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 0 {
+		t.Fatalf("snapshot after stale health success = %d, want 0", got)
+	}
+
+	if err := registry.MarkHealthSuccess(address, "pdu-1", base.Add(4*time.Second)); err != nil {
+		t.Fatalf("fresh MarkHealthSuccess() error = %v", err)
+	}
+	if got := registry.HealthySnapshot().Len(); got != 1 {
+		t.Errorf("snapshot after fresh health success = %d, want 1", got)
+	}
+}
+
 func TestRegistryRequiresMatchingHealthAndMetrics(t *testing.T) {
 	registry := New()
 	address := netip.MustParseAddrPort("10.0.0.1:8081")

@@ -17,10 +17,13 @@ import (
 func main() {
 	cfg := loadtest.Config{}
 	flag.StringVar(&cfg.Target, "target", "http://localhost:18080"+constants.CreateSMContextPath, "absolute h2c session API URL")
-	flag.DurationVar(&cfg.Duration, "duration", 10*time.Second, "measurement duration")
-	flag.IntVar(&cfg.Connections, "connections", 4, "maximum h2c connections")
-	flag.IntVar(&cfg.StreamsPerConnection, "streams", 50, "concurrent streams per connection")
+	flag.Uint64Var(&cfg.RequestCount, "requests", 15000, "exact number of request attempts to schedule")
+	flag.Uint64Var(&cfg.MinimumSuccessfulRequests, "min-success", 12000, "minimum successful responses required inside the measurement window")
+	flag.DurationVar(&cfg.Duration, "duration", time.Second, "measurement window used to pace requests and calculate TPS")
+	flag.IntVar(&cfg.Connections, "connections", 15, "maximum h2c connections")
+	flag.IntVar(&cfg.StreamsPerConnection, "streams", 32, "maximum concurrent streams per h2c connection")
 	flag.DurationVar(&cfg.RequestTimeout, "request-timeout", 3*time.Second, "timeout for one request")
+	flag.BoolVar(&cfg.WarmupConnections, "warm-connections", true, "establish every h2c connection before the measurement window")
 	flag.Parse()
 
 	runner, err := loadtest.NewRunner(loadtest.NewH2CTransport)
@@ -35,6 +38,19 @@ func main() {
 	}
 	if err != nil {
 		fail(err)
+	}
+	if !result.TargetMet {
+		fail(fmt.Errorf(
+			"target not met: attempted %d/%d, wrote %d/%d in %.3fs, completed %d/%d required successes inside %.3fs",
+			result.TotalRequests,
+			result.TargetRequests,
+			result.SentRequests,
+			result.TargetRequests,
+			result.DispatchDurationSeconds,
+			result.SuccessfulRequests,
+			result.TargetSuccessfulRequests,
+			result.TargetDurationSeconds,
+		))
 	}
 }
 

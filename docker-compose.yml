@@ -1,6 +1,39 @@
 name: smf-project2
 
 services:
+  loadtest:
+    profiles:
+      - loadtest
+    image: smf-loadtest:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: loadtest
+    depends_on:
+      - gateway
+    command:
+      - -target
+      - http://gateway:8080/nsmf-pdusession/v1/sm-contexts
+      - -requests
+      - "15000"
+      - -min-success
+      - "12000"
+      - -duration
+      - 1s
+      - -connections
+      - "${LOAD_TEST_CONNECTIONS:-15}"
+      - -streams
+      - "${LOAD_TEST_STREAMS:-32}"
+      - -request-timeout
+      - 3s
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   client:
     profiles:
       - tools
@@ -15,6 +48,7 @@ services:
     depends_on:
       - gateway
     environment:
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       CLIENT_ADDRESS: ":8090"
       CLIENT_GATEWAY_URL: http://gateway:8080
       CLIENT_REQUEST_TIMEOUT: 5s
@@ -35,10 +69,14 @@ services:
         SERVICE: gateway
     ports:
       - "127.0.0.1:18080:8080"
+      - "127.0.0.1:16060:6060"
     depends_on:
       - pdu-session
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
+      PPROF_ADDRESS: ":6060"
       GATEWAY_PUBLIC_URL: http://localhost:18080
       ROUTING_MODE: round_robin
       DISCOVERY_HOSTNAME: pdu-session
@@ -53,7 +91,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1.0"
+          cpus: "${GATEWAY_CPU_LIMIT:-4.0}"
           memory: 1G
 
   pdu-session:
@@ -67,6 +105,8 @@ services:
       - "8081"
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18080
     init: true
     read_only: true

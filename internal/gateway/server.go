@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/dangtuananh123456/gateway/pkg/constants"
 )
 
 // ServerConfig controls the public h2c server lifecycle.
@@ -46,6 +48,9 @@ func serve(
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 		Protocols:         h2cOnlyProtocols(),
+		HTTP2: &http.HTTP2Config{
+			MaxConcurrentStreams: constants.GatewayMaxConcurrentStreams,
+		},
 		BaseContext: func(net.Listener) context.Context {
 			return context.WithoutCancel(ctx)
 		},
@@ -60,6 +65,7 @@ func serve(
 	case err := <-serveErrors:
 		return normalizeServeError(err)
 	case <-ctx.Done():
+		httpServer.SetKeepAlivesEnabled(false)
 		shutdownCtx, cancel := context.WithTimeout(
 			context.WithoutCancel(ctx),
 			cfg.ShutdownTimeout,

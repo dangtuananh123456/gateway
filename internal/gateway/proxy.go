@@ -71,7 +71,7 @@ func (proxy *Proxy) ServeHTTP(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	upstreamCtx, cancel := context.WithTimeout(request.Context(), proxy.upstreamTimeout)
+	upstreamCtx, cancel := boundedUpstreamContext(request.Context(), proxy.upstreamTimeout)
 	defer cancel()
 	outbound := cloneForUpstream(request, upstreamCtx, instance.Address)
 	response, err := proxy.transport.RoundTrip(outbound)
@@ -83,16 +83,23 @@ func (proxy *Proxy) ServeHTTP(writer http.ResponseWriter, request *http.Request)
 	proxy.copyResponse(writer, response)
 }
 
+func boundedUpstreamContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	// A caller deadline that expires sooner already enforces the upstream bound.
+	// Reusing it avoids another context/timer allocation on the hot proxy path.
+	if deadline, found := parent.Deadline(); found && !deadline.After(time.Now().Add(timeout)) {
+		return parent, func() {}
+	}
+	return context.WithTimeout(parent, timeout)
+}
+
 func cloneForUpstream(
 	request *http.Request,
 	ctx context.Context,
 	address netip.AddrPort,
 ) *http.Request {
 	outbound := request.Clone(ctx)
-	upstreamURL := *request.URL
-	upstreamURL.Scheme = "http"
-	upstreamURL.Host = address.String()
-	outbound.URL = &upstreamURL
+	outbound.URL.Scheme = "http"
+	outbound.URL.Host = address.String()
 	outbound.Host = address.String()
 	outbound.RequestURI = ""
 	outbound.GetBody = nil

@@ -131,34 +131,34 @@
         <div class="performance-controls">
           <label>Runs<input id="performance-runs" type="number" min="1" max="5" value="3"></label>
           <label>Warm-up (s)<input id="performance-warmup" type="number" min="0" max="30" value="5"></label>
-          <label>Duration (s)<input id="performance-duration" type="number" min="1" max="60" value="10"></label>
-          <label>Connections<input id="performance-connections" type="number" min="1" max="16" value="4"></label>
-          <label>Streams/connection<input id="performance-streams" type="number" min="1" max="200" value="50"></label>
+          <label>Target duration (s)<input id="performance-duration" type="number" min="1" max="1" value="1" readonly></label>
+          <label>Connections<input id="performance-connections" type="number" min="1" max="16" value="15"></label>
+          <label>Streams/connection<input id="performance-streams" type="number" min="1" max="2048" value="32"></label>
           <label>Request timeout (s)<input id="performance-timeout" type="number" min="1" max="30" value="3"></label>
           <button id="run-performance" class="primary">Run E2E test</button>
         </div>
         <p id="performance-measured-at" class="performance-measured-at">Chưa chạy bài đo trong phiên UI này.</p>
         <div class="table-wrap performance-table">
           <table>
-            <thead><tr><th>Lần đo</th><th>TPS thành công</th><th>p50</th><th>p95</th><th>p99</th><th>Request lỗi (Phân tích)</th></tr></thead>
+            <thead><tr><th>Lần đo</th><th>TPS thành công</th><th>p50</th><th>p95</th><th>p99</th><th>Sent / lỗi</th></tr></thead>
             <tbody id="performance-rows"><tr><td colspan="6" class="muted">Chọn route và nhấn Run E2E test.</td></tr></tbody>
           </table>
         </div>
         <div id="performance-diagnostics" class="performance-diagnostics">
           <div class="diag-card">
             <h4>GATEWAY CPU USAGE <span class="badge warn">Bottleneck</span></h4>
-            <div id="diag-cpu" class="diag-value">85,96% – 104,44%</div>
-            <p>Bão hòa 1.0 vCPU; CPU chạm ngưỡng giới hạn khiến TPS đạt ~3.000 (chưa đạt mốc 20k TPS / 65% CPU).</p>
+            <div id="diag-cpu" class="diag-value">Chưa đo</div>
+            <p>Gateway được phép dùng tối đa 4 vCPU trong bài performance; số liệu được lấy trực tiếp sau mỗi lần chạy.</p>
           </div>
           <div class="diag-card">
             <h4>GATEWAY RAM USAGE <span class="badge pass">Passed</span></h4>
-            <div id="diag-ram" class="diag-value">~30 MiB / 1 GiB</div>
-            <p>Chỉ dùng ~2,9% RAM (đạt xuất sắc tiêu chí tài nguyên &lt; 65% của 1 GiB).</p>
+            <div id="diag-ram" class="diag-value">Chưa đo / 1 GiB</div>
+            <p>Hiển thị RAM peak thực tế của Gateway trong lần chạy hiện tại.</p>
           </div>
           <div class="diag-card">
             <h4>ERROR ANALYSIS <span class="badge info">End of Window</span></h4>
-            <div id="diag-error" class="diag-value">In-flight Cutoff (~200 reqs)</div>
-            <p>100% request lỗi là in-flight streams bị timeout khi hết 10s đo; 0 lỗi 5xx từ PDU.</p>
+            <div id="diag-error" class="diag-value">Chưa đo</div>
+            <p>PASS khi ghi đủ 15.000 request lên h2c và nhận tối thiểu 12.000 HTTP 201 trong một giây.</p>
           </div>
         </div>
         <div id="performance-fields" class="performance-fields"></div>

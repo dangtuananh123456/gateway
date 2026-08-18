@@ -1,12 +1,12 @@
 GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
-LOAD_TEST_ARGS ?= -target http://localhost:18080/nsmf-pdusession/v1/sm-contexts -duration 10s -connections 4 -streams 50 -request-timeout 3s
+LOAD_TEST_ARGS ?= -target http://localhost:18080/nsmf-pdusession/v1/sm-contexts -requests 15000 -min-success 12000 -duration 1s -connections 15 -streams 32 -request-timeout 3s
 PDU_REPLICAS ?= 3
 UI_BASE_URL ?= http://localhost:18090
 UI_EXPECTED_BACKENDS ?= $(PDU_REPLICAS)
 
-.PHONY: build test race lifecycle bench coverage fmt fmt-check vet lint check client-run load-test docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-scale docker-ui-ps docker-ui-smoke docker-ui-weighted-up docker-ui-weighted-ps docker-ui-weighted-smoke docker-ui-load-up docker-ui-load-ps docker-ui-load-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-performance-up docker-performance-ps docker-performance-down docker-down
+.PHONY: build test race lifecycle bench coverage fmt fmt-check vet lint check client-run load-test docker-network-load-test docker-up docker-ps docker-smoke docker-e2e-round-robin docker-ui-up docker-ui-scale docker-ui-ps docker-ui-smoke docker-ui-weighted-up docker-ui-weighted-ps docker-ui-weighted-smoke docker-ui-load-up docker-ui-load-ps docker-ui-load-smoke docker-weighted-up docker-weighted-ps docker-e2e-weighted docker-weighted-down docker-load-up docker-load-ps docker-e2e-load docker-load-down docker-scale-up docker-scale-ps docker-e2e-scale docker-scale-down docker-failure-up docker-failure-ps docker-e2e-failure docker-failure-down docker-performance-up docker-performance-ps docker-performance-down docker-down
 
 build:
 	$(GO) build ./...
@@ -45,6 +45,9 @@ client-run:
 
 load-test:
 	$(GO) run ./cmd/loadtest $(LOAD_TEST_ARGS)
+
+docker-network-load-test:
+	$(COMPOSE) --profile loadtest run --build --rm --no-deps loadtest
 
 docker-up:
 	$(COMPOSE) up --build -d --scale pdu-session=3

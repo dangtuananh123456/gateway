@@ -68,16 +68,88 @@ func TestCollectorRemovesFailedCandidateAndRestoresIt(t *testing.T) {
 		t.Fatalf("initial snapshot length = %d, want 1", got)
 	}
 	failing.Store(true)
-	if err := collector.CollectHealth(context.Background()); err == nil {
-		t.Fatal("failed CollectHealth() error = nil, want error")
-	}
-	if got := candidates.HealthySnapshot().Len(); got != 0 {
-		t.Fatalf("snapshot after failure = %d, want 0", got)
+	for attempt := 1; attempt <= constants.DiscoveryHealthFailureThreshold; attempt++ {
+		if err := collector.CollectHealth(context.Background()); err == nil {
+			t.Fatalf("failed CollectHealth() attempt %d error = nil, want error", attempt)
+		}
+		want := 1
+		if attempt == constants.DiscoveryHealthFailureThreshold {
+			want = 0
+		}
+		if got := candidates.HealthySnapshot().Len(); got != want {
+			t.Fatalf("snapshot after health failure %d = %d, want %d", attempt, got, want)
+		}
 	}
 	failing.Store(false)
 	collectBoth(t, collector)
 	if got := candidates.HealthySnapshot().Len(); got != 1 {
 		t.Errorf("snapshot after recovery = %d, want 1", got)
+	}
+}
+
+func TestCollectorMetricsFailureKeepsLastHealthySnapshot(t *testing.T) {
+	candidates := registry.New()
+	addCollectorCandidate(t, candidates, "10.0.0.1:8081")
+	var failMetrics atomic.Bool
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if failMetrics.Load() && request.URL.Path == constants.MetricsPath {
+			return nil, context.DeadlineExceeded
+		}
+		return successfulProbe(request)
+	})
+	collector := newTestCollector(t, candidates, transport)
+
+	collectBoth(t, collector)
+	failMetrics.Store(true)
+	if err := collector.CollectMetrics(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CollectMetrics() error = %v, want deadline exceeded", err)
+	}
+
+	if got := candidates.HealthySnapshot().Len(); got != 1 {
+		t.Fatalf("snapshot after metrics failure = %d, want last healthy backend retained", got)
+	}
+}
+
+func TestCollectorHealthSuccessResetsConsecutiveFailureCount(t *testing.T) {
+	candidates := registry.New()
+	addCollectorCandidate(t, candidates, "10.0.0.1:8081")
+	var failing atomic.Bool
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if failing.Load() && request.URL.Path == constants.HealthPath {
+			return nil, context.DeadlineExceeded
+		}
+		return successfulProbe(request)
+	})
+	collector := newTestCollector(t, candidates, transport)
+	collectBoth(t, collector)
+
+	failing.Store(true)
+	for range constants.DiscoveryHealthFailureThreshold - 1 {
+		_ = collector.CollectHealth(context.Background())
+	}
+	failing.Store(false)
+	if err := collector.CollectHealth(context.Background()); err != nil {
+		t.Fatalf("recovery CollectHealth() error = %v", err)
+	}
+	failing.Store(true)
+	for range constants.DiscoveryHealthFailureThreshold - 1 {
+		_ = collector.CollectHealth(context.Background())
+	}
+
+	if got := candidates.HealthySnapshot().Len(); got != 1 {
+		t.Fatalf("snapshot after non-consecutive failures = %d, want 1", got)
+	}
+}
+
+func TestCollectorRetriesUnhealthyTransitionAfterThreshold(t *testing.T) {
+	collector := &Collector{failures: make(map[netip.AddrPort]int)}
+	address := netip.MustParseAddrPort("10.0.0.1:8081")
+	for attempt := 1; attempt <= constants.DiscoveryHealthFailureThreshold+1; attempt++ {
+		got := collector.reachedHealthFailureThreshold(address)
+		want := attempt >= constants.DiscoveryHealthFailureThreshold
+		if got != want {
+			t.Errorf("threshold attempt %d = %t, want %t", attempt, got, want)
+		}
 	}
 }
 

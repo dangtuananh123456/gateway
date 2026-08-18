@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -15,19 +16,20 @@ import (
 )
 
 func main() {
-	logger := logging.New(os.Stdout)
-	if err := run(logger); err != nil {
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "load PDU configuration:", err)
+		os.Exit(1)
+	}
+	logger := logging.NewWithEnabled(os.Stdout, cfg.Logging.Enabled)
+	if err := run(cfg, logger); err != nil {
 		logger.Error("pdu-session stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
-	cfg, err := config.LoadDefault()
-	if err != nil {
-		return err
-	}
-
+func run(cfg config.Config, logger *slog.Logger) error {
+	var err error
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -48,6 +50,7 @@ func run(logger *slog.Logger) error {
 		"address", cfg.PDU.Server.Address,
 		"instance_id", instanceID,
 		"weight", cfg.PDU.Weight,
+		"access_log_enabled", cfg.Logging.Enabled && cfg.Logging.AccessLogEnabled,
 	)
 	handler, err := pdu.NewHandler(
 		pdu.HandlerConfig{
@@ -71,6 +74,11 @@ func run(logger *slog.Logger) error {
 			ShutdownTimeout:   cfg.PDU.Server.ShutdownTimeout,
 			MaxHeaderBytes:    cfg.PDU.Server.MaxHeaderBytes,
 		},
-		requestlog.New(logger, "pdu-session", handler),
+		requestlog.Wrap(
+			cfg.Logging.Enabled && cfg.Logging.AccessLogEnabled,
+			logger,
+			"pdu-session",
+			handler,
+		),
 	)
 }

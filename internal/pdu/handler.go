@@ -3,6 +3,7 @@ package pdu
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -51,6 +52,9 @@ func NewHandler(cfg HandlerConfig, sessions sessionCreator) (*Handler, error) {
 	}
 	if cfg.ProcessingDelay < 0 {
 		return nil, errors.New("create PDU handler: processing delay must not be negative")
+	}
+	if err := prepareCreateSMContextCodec(); err != nil {
+		return nil, fmt.Errorf("create PDU handler: prepare JSON decoder: %w", err)
 	}
 
 	return &Handler{

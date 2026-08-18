@@ -42,6 +42,8 @@ type Collector struct {
 	config    CollectorConfig
 	semaphore chan struct{}
 	now       func() time.Time
+	failureMu sync.Mutex
+	failures  map[netip.AddrPort]int
 }
 
 // NewCollector creates a collector. The caller owns the shared transport lifecycle.
@@ -72,6 +74,7 @@ func NewCollector(
 		config:    config,
 		semaphore: make(chan struct{}, config.MaxConcurrency),
 		now:       time.Now,
+		failures:  make(map[netip.AddrPort]int),
 	}, nil
 }
 
@@ -178,10 +181,10 @@ func (collector *Collector) withPermit(ctx context.Context, probe func() error) 
 func (collector *Collector) collectHealth(ctx context.Context, candidate registry.Candidate) error {
 	var response model.HealthResponse
 	if err := collector.getJSON(ctx, candidate.Address, constants.HealthPath, &response); err != nil {
-		return collector.fail(ctx, candidate.Address, err)
+		return collector.failHealth(ctx, candidate.Address, err)
 	}
 	if response.Status != constants.ServiceUp {
-		return collector.fail(ctx, candidate.Address, fmt.Errorf("health status is %q", response.Status))
+		return collector.failHealth(ctx, candidate.Address, fmt.Errorf("health status is %q", response.Status))
 	}
 	observedAt, err := collector.observedAt()
 	if err != nil {
@@ -191,15 +194,19 @@ func (collector *Collector) collectHealth(ctx context.Context, candidate registr
 		if errors.Is(err, registry.ErrCandidateNotFound) {
 			return nil
 		}
-		return collector.fail(ctx, candidate.Address, err)
+		return collector.failHealth(ctx, candidate.Address, err)
 	}
+	collector.resetHealthFailures(candidate.Address)
 	return nil
 }
 
 func (collector *Collector) collectMetrics(ctx context.Context, candidate registry.Candidate) error {
 	var response model.MetricsResponse
 	if err := collector.getJSON(ctx, candidate.Address, constants.MetricsPath, &response); err != nil {
-		return collector.fail(ctx, candidate.Address, err)
+		// Metrics are advisory load data, not a liveness signal. Keep the
+		// last-good metadata when this probe is late or unavailable; only the
+		// health endpoint is allowed to remove a backend from routing.
+		return err
 	}
 	observedAt, err := collector.observedAt()
 	if err != nil {
@@ -214,7 +221,7 @@ func (collector *Collector) collectMetrics(ctx context.Context, candidate regist
 		return nil
 	}
 	if err != nil {
-		return collector.fail(ctx, candidate.Address, err)
+		return err
 	}
 	return nil
 }
@@ -256,8 +263,11 @@ func (collector *Collector) getJSON(
 	return nil
 }
 
-func (collector *Collector) fail(ctx context.Context, address netip.AddrPort, cause error) error {
+func (collector *Collector) failHealth(ctx context.Context, address netip.AddrPort, cause error) error {
 	if ctx.Err() != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return cause
+	}
+	if !collector.reachedHealthFailureThreshold(address) {
 		return cause
 	}
 	observedAt, err := collector.observedAt()
@@ -268,6 +278,22 @@ func (collector *Collector) fail(ctx context.Context, address netip.AddrPort, ca
 		return errors.Join(cause, err)
 	}
 	return cause
+}
+
+func (collector *Collector) reachedHealthFailureThreshold(address netip.AddrPort) bool {
+	collector.failureMu.Lock()
+	defer collector.failureMu.Unlock()
+	collector.failures[address]++
+	// Retry MarkUnhealthy after the threshold. A concurrent registry update can
+	// make one observation stale, and a single ignored attempt must not leave a
+	// persistently failing backend routable forever.
+	return collector.failures[address] >= constants.DiscoveryHealthFailureThreshold
+}
+
+func (collector *Collector) resetHealthFailures(address netip.AddrPort) {
+	collector.failureMu.Lock()
+	delete(collector.failures, address)
+	collector.failureMu.Unlock()
 }
 
 func (collector *Collector) observedAt() (time.Time, error) {

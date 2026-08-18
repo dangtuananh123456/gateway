@@ -163,6 +163,8 @@ func applyEnvironment(cfg *Config, lookup envLookup) error {
 		"DISCOVERY_METRICS_TIMEOUT":   durationSetter(&cfg.Discovery.MetricsTimeout),
 		"DISCOVERY_STALE_TTL":         durationSetter(&cfg.Discovery.StaleTTL),
 		"DISCOVERY_MAX_CONCURRENCY":   intSetter(&cfg.Discovery.MaxConcurrency),
+		"LOG_ENABLED":                 boolSetter(&cfg.Logging.Enabled),
+		"ACCESS_LOG_ENABLED":          boolSetter(&cfg.Logging.AccessLogEnabled),
 	}
 	for key, setter := range setters {
 		if value, found := lookup(key); found {
@@ -172,6 +174,17 @@ func applyEnvironment(cfg *Config, lookup envLookup) error {
 		}
 	}
 	return nil
+}
+
+func boolSetter(destination *bool) func(string) error {
+	return func(value string) error {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("parse boolean %q: %w", value, err)
+		}
+		*destination = parsed
+		return nil
+	}
 }
 
 func stringSetter(destination *string) func(string) error {

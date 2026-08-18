@@ -47,6 +47,27 @@ func TestAccessLogRecordsCompletedRequest(t *testing.T) {
 	}
 }
 
+func TestWrapDisabledBypassesAccessLogging(t *testing.T) {
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	called := false
+	handler := Wrap(false, logger, "gateway", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		called = true
+		if request.Header.Get(RequestIDHeader) != "" {
+			t.Error("disabled access log unexpectedly generated a request ID")
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/health", nil))
+	if !called {
+		t.Fatal("next handler was not called")
+	}
+	if output.Len() != 0 {
+		t.Errorf("disabled access log output = %q, want empty", output.String())
+	}
+}
+
 func TestAccessLogGeneratesRequestIDAndWarnsForFailure(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil))

@@ -16,6 +16,15 @@ const RequestIDHeader = "X-Request-ID"
 
 var fallbackSequence atomic.Uint64
 
+// Wrap installs access logging only when enabled. Returning next directly keeps
+// the disabled request path free of timing, request-ID, recorder, and slog work.
+func Wrap(enabled bool, logger *slog.Logger, service string, next http.Handler) http.Handler {
+	if !enabled {
+		return next
+	}
+	return New(logger, service, next)
+}
+
 // New wraps next with one structured completion log for every HTTP request.
 func New(logger *slog.Logger, service string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

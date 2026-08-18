@@ -108,3 +108,15 @@ func TestNewHonorsConfiguredMinimumLevel(t *testing.T) {
 		t.Errorf("output does not contain error record: %q", output.String())
 	}
 }
+
+func TestNewHonorsGlobalLogSwitch(t *testing.T) {
+	t.Setenv("LOG_ENABLED", "false")
+	var output bytes.Buffer
+	logger := New(&output)
+	logger.Info("startup")
+	logger.Warn("discovery warning")
+	logger.Error("shutdown error")
+	if output.Len() != 0 {
+		t.Errorf("disabled logger output = %q, want empty", output.String())
+	}
+}

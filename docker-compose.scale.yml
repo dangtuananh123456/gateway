@@ -14,6 +14,8 @@ services:
       - pdu-session
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18083
       GATEWAY_UPSTREAM_TIMEOUT: 10s
       ROUTING_MODE: ${ROUTING_MODE:-round_robin}
@@ -43,6 +45,8 @@ services:
       - "8081"
     environment:
       CONFIG_PATH: /app/config.yaml
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
+      LOG_ENABLED: ${LOG_ENABLED:-true}
       GATEWAY_PUBLIC_URL: http://localhost:18083
       PDU_WEIGHT: "1"
       PDU_PROCESSING_DELAY: ${PDU_PROCESSING_DELAY:-0s}

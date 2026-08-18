@@ -42,6 +42,9 @@ discovery:
   metrics_timeout: 100ms
   stale_ttl: 15s
   max_concurrency: 20
+logging:
+  enabled: true
+  access_log_enabled: true
 `
 
 func TestLoad(t *testing.T) {
@@ -54,6 +57,8 @@ func TestLoad(t *testing.T) {
 		"PDU_WEIGHT=3",
 		"ROUTING_MODE=weighted",
 		"DISCOVERY_METRICS_TIMEOUT=\"150ms\"",
+		"LOG_ENABLED=false",
+		"ACCESS_LOG_ENABLED=false",
 	}, "\n"))
 
 	cfg, err := Load(configPath, envPath)
@@ -71,6 +76,12 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.Discovery.MetricsTimeout != 150*time.Millisecond {
 		t.Errorf("metrics timeout = %s, want 150ms", cfg.Discovery.MetricsTimeout)
+	}
+	if cfg.Logging.AccessLogEnabled {
+		t.Error("access log enabled = true, want false from dotenv")
+	}
+	if cfg.Logging.Enabled {
+		t.Error("logging enabled = true, want false from dotenv")
 	}
 }
 
@@ -93,6 +104,8 @@ func TestLoadRejectsInvalidInput(t *testing.T) {
 		{name: "multiple documents", yaml: validYAML + "---\nrouting: {}\n", wantInError: "multiple YAML documents"},
 		{name: "invalid dotenv", yaml: validYAML, dotenv: "not an assignment", wantInError: "expected KEY=VALUE"},
 		{name: "invalid environment duration", yaml: validYAML, dotenv: "GATEWAY_UPSTREAM_TIMEOUT=soon", wantInError: "GATEWAY_UPSTREAM_TIMEOUT"},
+		{name: "invalid environment boolean", yaml: validYAML, dotenv: "ACCESS_LOG_ENABLED=maybe", wantInError: "ACCESS_LOG_ENABLED"},
+		{name: "invalid global log boolean", yaml: validYAML, dotenv: "LOG_ENABLED=maybe", wantInError: "LOG_ENABLED"},
 		{name: "validation failure", yaml: strings.Replace(validYAML, "mode: round_robin", "mode: random", 1), wantInError: "routing.mode"},
 	}
 	for _, test := range tests {
@@ -162,6 +175,7 @@ func validConfig() Config {
 			Weight: 1,
 		},
 		Routing: RoutingConfig{Mode: constants.RoutingRoundRobin},
+		Logging: LoggingConfig{Enabled: true, AccessLogEnabled: true},
 		Discovery: DiscoveryConfig{
 			Hostname: "pdu-session", Port: 8081, PollInterval: 5 * time.Second,
 			LookupTimeout: time.Second, HealthInterval: 5 * time.Second, HealthTimeout: time.Second,

@@ -31,10 +31,23 @@ const (
 
 // New creates a concurrency-safe logger with compact container-friendly output.
 func New(writer io.Writer) *slog.Logger {
+	return NewWithEnabled(writer, configuredEnabled(os.Getenv("LOG_ENABLED")))
+}
+
+// NewWithEnabled creates a logger using already validated application config.
+// This lets LOG_ENABLED loaded from a dotenv file behave exactly like a process
+// environment override.
+func NewWithEnabled(writer io.Writer, enabled bool) *slog.Logger {
+	minimumLevel := configuredLevel(os.Getenv("LOG_LEVEL"))
+	if !enabled {
+		// slog checks Enabled before it builds a record, so a disabled logger
+		// adds no formatting, locking, or write work to the process.
+		minimumLevel = slog.Level(127)
+	}
 	return slog.New(&Handler{
 		output:   &sharedOutput{writer: writer},
 		color:    os.Getenv("NO_COLOR") == "",
-		minLevel: configuredLevel(os.Getenv("LOG_LEVEL")),
+		minLevel: minimumLevel,
 	})
 }
 
@@ -116,6 +129,14 @@ func configuredLevel(value string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func configuredEnabled(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return true
+	}
+	enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+	return err != nil || enabled
 }
 
 func appendAttribute(line *strings.Builder, groups []string, attribute slog.Attr, color bool) {
