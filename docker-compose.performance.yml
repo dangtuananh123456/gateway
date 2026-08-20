@@ -40,7 +40,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "${GATEWAY_CPU_LIMIT:-4.0}"
+          cpus: "1.0"
           memory: 1G
 
   pdu-session:

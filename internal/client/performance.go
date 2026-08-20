@@ -142,7 +142,7 @@ func performanceMetadata(path string, input performanceRunRequest) performanceRe
 		ObservedResources: performanceResourceSummary{
 			GatewayCPURange: "Chưa đo",
 			GatewayRAMPeak:  "Chưa đo",
-			GatewayLimits:   "4.0 vCPU / 1 GiB RAM",
+			GatewayLimits:   "1.0 vCPU / 1 GiB RAM",
 			ErrorAnalysis:   "Target: gửi đủ 15.000 request và nhận tối thiểu 12.000 HTTP 201 trong một giây.",
 		},
 		Fields: performanceFieldExplanations,

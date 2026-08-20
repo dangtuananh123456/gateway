@@ -33,6 +33,11 @@ services:
     cap_drop:
       - ALL
     stop_grace_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
 
   pdu-session:
     image: smf-pdu-session:local
