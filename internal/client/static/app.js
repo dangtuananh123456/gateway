@@ -21,10 +21,16 @@ const presets = {
 };
 
 const $ = (id) => document.getElementById(id);
-const state = { history: [], requestNumber: 0, routingMode: '', performanceRoute: '/api/performance/round-robin' };
+const state = { history: [], requestNumber: 0, routingMode: '', healthyBackendCount: null, performanceRunning: false, performanceRoute: '/api/performance/round-robin', lastPerformanceReport: null };
+const workloadPresets = {
+  '50k': { requests: 50000, minimum: 35000, connections: 3, streams: 64, name: '50k: cấu hình dùng trong báo cáo' },
+  '40k': { requests: 40000, minimum: 35000, connections: 3, streams: 64, name: '40k: kiểm tra ngưỡng ≥35k success' },
+  '15k': { requests: 15000, minimum: 12000, connections: 15, streams: 32, name: '15k: workload cũ' }
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
   bindEvents();
+  updatePerformancePreview();
   applyPreset('create');
   try {
     const config = await fetch('/api/config').then(response => response.json());
@@ -44,6 +50,26 @@ function bindEvents() {
   $('run-scenario').addEventListener('click', runScenario);
   $('refresh-backends').addEventListener('click', refreshBackends);
   $('run-performance').addEventListener('click', runPerformance);
+  $('download-performance').addEventListener('click', downloadPerformance);
+  document.querySelectorAll('[data-workload]').forEach(button => button.addEventListener('click', () => applyWorkloadPreset(button.dataset.workload)));
+  document.querySelectorAll('.performance-controls input').forEach(input => {
+    input.required = true;
+    input.addEventListener('input', () => {
+      document.querySelectorAll('[data-workload]').forEach(button => button.classList.remove('active'));
+      $('performance-workload-name').textContent = 'Cấu hình tùy chỉnh';
+      updatePerformancePreview();
+    });
+  });
+  $('backend-scale-count').addEventListener('change', updateScaleCommand);
+  $('copy-scale-command').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('backend-scale-command').textContent);
+      $('copy-scale-command').textContent = 'Đã copy';
+    } catch (_) {
+      $('backend-error').textContent = 'Chọn và copy lệnh hiển thị bên dưới để chạy ở terminal.';
+      $('backend-error').classList.remove('hidden');
+    }
+  });
   document.querySelectorAll('[data-performance-route]').forEach(button => button.addEventListener('click', () => loadPerformance(button.dataset.performanceRoute)));
   document.addEventListener('keydown', event => {
     if (event.ctrlKey && event.key === 'Enter') sendCurrentRequest();
@@ -52,6 +78,7 @@ function bindEvents() {
 }
 
 async function loadPerformance(route, scrollToReport = true) {
+  if (state.performanceRunning) return;
   const errorBox = $('performance-error');
   errorBox.classList.add('hidden');
   document.querySelectorAll('[data-performance-route]').forEach(button => button.classList.toggle('active', button.dataset.performanceRoute === route));
@@ -63,7 +90,7 @@ async function loadPerformance(route, scrollToReport = true) {
     renderPerformance(report);
     if (scrollToReport) $('performance-report').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
-    $('performance-rows').innerHTML = '<tr><td colspan="6" class="muted">Không đọc được kết quả performance.</td></tr>';
+    $('performance-rows').innerHTML = '<tr><td colspan="10" class="muted">Không đọc được kết quả performance.</td></tr>';
     errorBox.textContent = error.message;
     errorBox.classList.remove('hidden');
   }
@@ -73,7 +100,11 @@ function renderPerformance(report) {
   $('performance-title').textContent = report.displayName;
   $('performance-route').textContent = report.route;
   const environment = report.environment;
-  $('performance-environment').textContent = `${environment.protocol} · gửi ${environment.targetRequests} requests/${environment.durationSeconds}s · cần ≥ ${environment.targetSuccessfulRequests} HTTP 201 · ${environment.connections} connections · ${environment.streamsPerConnection} streams/connection · ${environment.concurrentStreams} concurrent streams`;
+  $('performance-environment').textContent = `${environment.protocol} · ${formatNumber(environment.targetRequests, 0)} requests / ${environment.durationSeconds}s · cần ≥ ${formatNumber(environment.targetSuccessfulRequests, 0)} HTTP 201 · ${environment.connections} connections × ${environment.streamsPerConnection} streams · generator ${environment.generatorGoProcs} Go processors · nghỉ ${environment.pauseSeconds}s giữa lượt`;
+  $('performance-acceptance').textContent = `PASS đầy đủ: attempted và sent đủ ${formatNumber(environment.targetRequests, 0)}, success ≥ ${formatNumber(environment.targetSuccessfulRequests, 0)} trong ${environment.durationSeconds}s. Dòng TB chỉ PASS nếu mọi lượt PASS.`;
+  state.lastPerformanceReport = report.measurements.length ? report : null;
+  $('download-performance').disabled = !state.lastPerformanceReport;
+  renderPerformanceTopology();
   
   if (report.observedResources) {
     if ($('diag-cpu')) $('diag-cpu').textContent = report.observedResources.gatewayCpuRange || 'Chưa đo';
@@ -82,21 +113,23 @@ function renderPerformance(report) {
   }
 
   if (!report.measurements.length) {
-    $('performance-rows').innerHTML = '<tr><td colspan="6" class="muted">Chưa có kết quả. Nhấn Run E2E test để bắt đầu đo thật.</td></tr>';
+    $('performance-rows').innerHTML = '<tr><td colspan="10" class="muted">Chưa có kết quả. Nhấn Run E2E test để bắt đầu đo thật.</td></tr>';
     $('performance-measured-at').textContent = 'Chưa chạy bài đo trong phiên UI này.';
   } else {
     $('performance-rows').innerHTML = report.measurements.map(measurement => {
-      const errorNote = measurement.failedReason
-        ? `<span class="error-tag" title="${escapeHTML(measurement.failedReason)}">target missed</span>`
-        : (measurement.failedRequests > 0 ? `<span class="error-tag" title="Target vẫn đạt; các request còn lại chưa hoàn tất trong cửa sổ một giây">within allowance</span>` : '');
+      const errorDetails = measurement.average ? 'Trung bình số failed từng lần; xem errors trong từng lượt/JSON.' : JSON.stringify(measurement.errors || {});
       return `
     <tr class="${measurement.average ? 'average-row' : ''}">
       <td>${escapeHTML(measurement.run)}</td>
       <td>${formatNumber(measurement.successfulTps, 2)}</td>
       <td>${formatNumber(measurement.latencyP50Millis, 3)} ms</td>
+      <td>${formatNumber(measurement.latencyP90Millis, 3)} ms</td>
       <td>${formatNumber(measurement.latencyP95Millis, 3)} ms</td>
       <td>${formatNumber(measurement.latencyP99Millis, 3)} ms</td>
-      <td>${formatNumber(measurement.sentRequests, 0)} / ${formatNumber(measurement.failedRequests, 0)} ${errorNote}</td>
+      <td>${formatNumber(measurement.totalRequests, 0)} / ${formatNumber(measurement.sentRequests, 0)}</td>
+      <td title="${escapeHTML(errorDetails)}">${formatNumber(measurement.successfulRequests, 0)} / ${formatNumber(measurement.failedRequests, 0)}</td>
+      <td><span class="badge ${measurement.successTargetMet ? 'pass' : 'warn'}">${measurement.successTargetMet ? 'ĐẠT' : 'THIẾU'}</span></td>
+      <td title="${escapeHTML(measurement.failedReason || 'Gửi đủ và đạt success trong cửa sổ đo')}"><span class="badge ${measurement.targetMet ? 'pass' : 'warn'}">${measurement.targetMet ? 'PASS' : 'FAIL'}</span></td>
     </tr>
     `;
     }).join('');
@@ -104,7 +137,7 @@ function renderPerformance(report) {
   }
   const labels = {
     run: 'Lần đo', successfulTps: 'TPS thành công', latencyP50Millis: 'p50',
-    latencyP95Millis: 'p95', latencyP99Millis: 'p99', sentRequests: 'Request đã gửi', failedRequests: 'Request lỗi'
+    latencyP90Millis: 'p90', latencyP95Millis: 'p95', latencyP99Millis: 'p99', sentRequests: 'Request đã gửi', failedRequests: 'Request lỗi', successTargetMet: 'Ngưỡng success', targetMet: 'Target đầy đủ'
   };
   $('performance-fields').innerHTML = Object.entries(report.fields).map(([field, explanation]) => `
     <div><strong>${escapeHTML(labels[field] || field)}</strong><span>${escapeHTML(explanation)}</span></div>
@@ -112,6 +145,7 @@ function renderPerformance(report) {
 }
 
 async function runPerformance() {
+  if (state.performanceRunning) return;
   const route = state.performanceRoute;
   const expectedMode = {
     '/api/performance/round-robin': 'round_robin',
@@ -120,26 +154,28 @@ async function runPerformance() {
   }[route];
   const errorBox = $('performance-error');
   errorBox.classList.add('hidden');
+  for (const input of document.querySelectorAll('.performance-controls input')) {
+    if (!input.reportValidity()) return;
+  }
+  state.performanceRunning = true;
+  await refreshBackends();
   if (state.routingMode && state.routingMode !== expectedMode) {
     errorBox.textContent = `Route này cần Gateway mode ${expectedMode}, nhưng Gateway đang chạy ${state.routingMode}.`;
     errorBox.classList.remove('hidden');
+    state.performanceRunning = false;
     return;
   }
-  const config = {
-    runs: Number($('performance-runs').value),
-    warmupSeconds: Number($('performance-warmup').value),
-    durationSeconds: Number($('performance-duration').value),
-    connections: Number($('performance-connections').value),
-    streamsPerConnection: Number($('performance-streams').value),
-    requestTimeoutSeconds: Number($('performance-timeout').value)
-  };
-  const estimatedSeconds = config.warmupSeconds + config.runs * config.durationSeconds;
+  const config = performanceConfig();
+  const estimatedSeconds = config.warmupSeconds + config.runs * config.durationSeconds + (config.runs - 1) * config.pauseSeconds;
   const button = $('run-performance');
   const routeButtons = document.querySelectorAll('[data-performance-route]');
   button.disabled = true;
+  state.lastPerformanceReport = null;
+  document.querySelectorAll('.performance-controls input,[data-workload]').forEach(control => { control.disabled = true; });
+  $('download-performance').disabled = true;
   routeButtons.forEach(routeButton => { routeButton.disabled = true; });
   button.textContent = `Running… khoảng ${estimatedSeconds}s`;
-  $('performance-rows').innerHTML = '<tr><td colspan="6" class="muted">Đang gửi tải thật đến Gateway, vui lòng chờ...</td></tr>';
+  $('performance-rows').innerHTML = '<tr><td colspan="10" class="muted">Đang gửi tải thật đến Gateway, vui lòng chờ...</td></tr>';
   $('performance-measured-at').textContent = `Đang chạy ${config.runs} lần đo qua HTTP/2 h2c.`;
   try {
     const response = await fetch(route, {
@@ -151,15 +187,70 @@ async function runPerformance() {
     if (!response.ok) throw new Error(report.error || `Performance API HTTP ${response.status}`);
     renderPerformance(report);
   } catch (error) {
-    $('performance-rows').innerHTML = '<tr><td colspan="6" class="muted">Bài đo không hoàn thành.</td></tr>';
+    $('performance-rows').innerHTML = '<tr><td colspan="10" class="muted">Bài đo không hoàn thành.</td></tr>';
     $('performance-measured-at').textContent = 'Không có kết quả mới.';
     errorBox.textContent = error.message;
     errorBox.classList.remove('hidden');
   } finally {
+    state.performanceRunning = false;
     button.disabled = false;
+    document.querySelectorAll('.performance-controls input,[data-workload]').forEach(control => { control.disabled = false; });
+    $('download-performance').disabled = !state.lastPerformanceReport;
     routeButtons.forEach(routeButton => { routeButton.disabled = false; });
     button.textContent = 'Run E2E test';
   }
+}
+
+function performanceConfig() {
+  return {
+    runs: Number($('performance-runs').value), warmupSeconds: Number($('performance-warmup').value),
+    durationSeconds: Number($('performance-duration').value), connections: Number($('performance-connections').value),
+    streamsPerConnection: Number($('performance-streams').value), requestTimeoutSeconds: Number($('performance-timeout').value),
+    targetRequests: Number($('performance-requests').value), targetSuccessfulRequests: Number($('performance-min-success').value),
+    pauseSeconds: Number($('performance-pause').value)
+  };
+}
+
+function applyWorkloadPreset(name) {
+  const preset = workloadPresets[name];
+  const values = { requests: preset.requests, 'min-success': preset.minimum, connections: preset.connections, streams: preset.streams, runs: 3, duration: 1, timeout: 3, pause: 2, warmup: 0 };
+  for (const [field, value] of Object.entries(values)) $('performance-' + field).value = value;
+  document.querySelectorAll('[data-workload]').forEach(button => button.classList.toggle('active', button.dataset.workload === name));
+  $('performance-workload-name').textContent = preset.name;
+  updatePerformancePreview();
+}
+
+function updatePerformancePreview() {
+  const config = performanceConfig();
+  $('performance-min-success').max = String(config.targetRequests);
+  $('performance-workload-hint').textContent = config.durationSeconds > 0 && config.targetRequests > 0
+    ? `Cấu hình sắp chạy: ${formatNumber(config.targetRequests / config.durationSeconds, 2)} attempts/s trung bình · ngưỡng ${formatNumber(config.targetSuccessfulRequests / config.durationSeconds, 2)} success TPS · ${config.connections * config.streamsPerConnection} worker. Tổng request tính cho cả cửa sổ; pacing trong 85% đầu cửa sổ.`
+    : 'Nhập số request và thời gian đo hợp lệ.';
+}
+
+function renderPerformanceTopology() {
+  let text = `PDU healthy hiện tại: ${state.healthyBackendCount ?? '—'}`;
+  const report = state.lastPerformanceReport;
+  if (report) text += ` · Bài đo vừa chạy: ${report.healthyBackendsBefore ?? '—'} → ${report.healthyBackendsAfter >= 0 ? report.healthyBackendsAfter : '—'} PDU (trước / sau)`;
+  $('performance-topology').textContent = text;
+}
+
+function updateScaleCommand() {
+  $('backend-scale-command').textContent = `ACCESS_LOG_ENABLED=false LOG_ENABLED=false docker compose up -d --scale pdu-session=${$('backend-scale-count').value} --no-recreate`;
+  $('copy-scale-command').textContent = 'Copy lệnh scale';
+}
+
+function downloadPerformance() {
+  const report = state.lastPerformanceReport;
+  if (!report) return;
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `gateway-${report.algorithm}-${report.environment.targetRequests}req-${report.healthyBackendsBefore ?? 'unknown'}pdu-${new Date(report.measuredAt).getTime()}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatNumber(value, digits) {
@@ -196,6 +287,8 @@ async function refreshBackends() {
 
 function renderBackends(payload) {
   state.routingMode = payload.routingMode || '';
+  state.healthyBackendCount = payload.count;
+  renderPerformanceTopology();
   $('performance-gateway-mode').textContent = state.routingMode || 'không xác định';
   $('backend-count').textContent = String(payload.count);
   if (payload.instances.length === 0) {

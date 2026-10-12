@@ -170,6 +170,14 @@ func NewApplicationWithDependencies(
 // existing connection has reached the peer's stream limit.
 func NewSharedTransport() *http.Transport {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dial := transport.DialContext
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		return newBatchConn(conn), nil
+	}
 	transport.Proxy = nil
 	transport.Protocols = h2cOnlyProtocols()
 	transport.DisableCompression = true

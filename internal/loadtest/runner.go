@@ -53,6 +53,7 @@ type Result struct {
 	FailedRequests           uint64            `json:"failedRequests"`
 	SuccessfulTPS            float64           `json:"successfulTps"`
 	LatencyP50Millis         float64           `json:"latencyP50Millis"`
+	LatencyP90Millis         float64           `json:"latencyP90Millis"`
 	LatencyP95Millis         float64           `json:"latencyP95Millis"`
 	LatencyP99Millis         float64           `json:"latencyP99Millis"`
 	StatusCodes              map[string]uint64 `json:"statusCodes"`
@@ -494,6 +495,7 @@ func aggregate(
 	result.SuccessfulTPS = float64(result.SuccessfulRequests) / cfg.Duration.Seconds()
 	sort.Slice(latencies, func(first, second int) bool { return latencies[first] < latencies[second] })
 	result.LatencyP50Millis = durationMillis(percentile(latencies, 50))
+	result.LatencyP90Millis = durationMillis(percentile(latencies, 90))
 	result.LatencyP95Millis = durationMillis(percentile(latencies, 95))
 	result.LatencyP99Millis = durationMillis(percentile(latencies, 99))
 	return result

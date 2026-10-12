@@ -97,7 +97,12 @@
           <div class="backend-empty">Đang tải danh sách backend...</div>
         </div>
         <div id="backend-error" class="inline-error hidden"></div>
-        <p class="backend-command"><code>docker compose --profile tools up -d --scale pdu-session=4 --no-recreate</code></p>
+        <div class="backend-scale-tools">
+          <label>Scale từng bước <select id="backend-scale-count"><option>5</option><option>6</option><option>7</option></select> PDU</label>
+          <button id="copy-scale-command" class="secondary">Copy lệnh scale</button>
+          <span>Chạy lệnh ở terminal, đợi đủ PDU healthy rồi Refresh backends.</span>
+        </div>
+        <p class="backend-command"><code id="backend-scale-command">ACCESS_LOG_ENABLED=false LOG_ENABLED=false docker compose up -d --scale pdu-session=5 --no-recreate</code></p>
       </section>
 
       <section class="panel scenario-panel">
@@ -120,7 +125,7 @@
           <div>
             <span class="eyebrow">END-TO-END PERFORMANCE</span>
             <h2 id="performance-title">Round Robin</h2>
-            <p>Kết quả đã đo bằng Go load generator; chọn từng route ở thanh bên trái để đổi thuật toán.</p>
+            <p>Đo thật bằng cùng Go load generator của CLI; chọn workload rồi chạy trên topology hiện tại.</p>
           </div>
           <div class="performance-route-meta">
             <code id="performance-route">/api/performance/round-robin</code>
@@ -128,37 +133,53 @@
           </div>
         </div>
         <div id="performance-environment" class="performance-environment">Đang tải môi trường đo...</div>
-        <div class="performance-controls">
-          <label>Runs<input id="performance-runs" type="number" min="1" max="5" value="3"></label>
-          <label>Warm-up (s)<input id="performance-warmup" type="number" min="0" max="30" value="5"></label>
-          <label>Target duration (s)<input id="performance-duration" type="number" min="1" max="1" value="1" readonly></label>
-          <label>Connections<input id="performance-connections" type="number" min="1" max="16" value="15"></label>
-          <label>Streams/connection<input id="performance-streams" type="number" min="1" max="2048" value="32"></label>
-          <label>Request timeout (s)<input id="performance-timeout" type="number" min="1" max="30" value="3"></label>
-          <button id="run-performance" class="primary">Run E2E test</button>
+        <p id="performance-topology" class="performance-note">PDU healthy: đang đọc...</p>
+        <div class="performance-presets" aria-label="Benchmark presets">
+          <span>Preset</span>
+          <button class="secondary active" data-workload="50k">50k / ≥35k success</button>
+          <button class="secondary" data-workload="40k">40k / ≥35k success</button>
+          <button class="secondary" data-workload="15k">15k / ≥12k success</button>
+          <span id="performance-workload-name">50k: cấu hình dùng trong báo cáo</span>
         </div>
+        <div class="performance-controls">
+          <label>Tổng request / cửa sổ<input id="performance-requests" type="number" min="1" max="1000000" step="1" value="50000"></label>
+          <label>Success tối thiểu / cửa sổ<input id="performance-min-success" type="number" min="1" max="50000" step="1" value="35000"></label>
+          <label>Runs<input id="performance-runs" type="number" min="1" max="5" value="3"></label>
+          <label>Cửa sổ đo (s)<input id="performance-duration" type="number" min="1" max="10" value="1"></label>
+          <label>Connections<input id="performance-connections" type="number" min="1" max="16" value="3"></label>
+          <label>Streams/connection<input id="performance-streams" type="number" min="1" max="2048" value="64"></label>
+          <label>Request timeout (s)<input id="performance-timeout" type="number" min="1" max="30" value="3"></label>
+          <label>Nghỉ giữa lần đo (s)<input id="performance-pause" type="number" min="0" max="10" value="2"></label>
+          <label>Warm-up bổ sung (s)<input id="performance-warmup" type="number" min="0" max="30" value="0"></label>
+        </div>
+        <p id="performance-workload-hint" class="performance-note"></p>
+        <div class="performance-actions">
+          <button id="run-performance" class="primary">Run E2E test</button>
+          <button id="download-performance" class="secondary" disabled>Tải JSON kết quả</button>
+        </div>
+        <p class="performance-note">Mỗi connection luôn được warm trước khi đo. TB percentile là trung bình từng lần, không phải percentile gộp. Không scale PDU trong lúc chạy.</p>
         <p id="performance-measured-at" class="performance-measured-at">Chưa chạy bài đo trong phiên UI này.</p>
         <div class="table-wrap performance-table">
           <table>
-            <thead><tr><th>Lần đo</th><th>TPS thành công</th><th>p50</th><th>p95</th><th>p99</th><th>Sent / lỗi</th></tr></thead>
-            <tbody id="performance-rows"><tr><td colspan="6" class="muted">Chọn route và nhấn Run E2E test.</td></tr></tbody>
+            <thead><tr><th>Lần đo</th><th>TPS thành công</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>Attempted / Sent</th><th>Success / Failed</th><th>Ngưỡng success</th><th>Target đầy đủ</th></tr></thead>
+            <tbody id="performance-rows"><tr><td colspan="10" class="muted">Chọn route và nhấn Run E2E test.</td></tr></tbody>
           </table>
         </div>
         <div id="performance-diagnostics" class="performance-diagnostics">
           <div class="diag-card">
-            <h4>GATEWAY CPU USAGE <span class="badge warn">Bottleneck</span></h4>
+            <h4>GATEWAY CPU USAGE <span class="badge info">Process CPU</span></h4>
             <div id="diag-cpu" class="diag-value">Chưa đo</div>
-            <p>Gateway được giới hạn tối đa 1 vCPU trong bài performance; số liệu được lấy trực tiếp sau mỗi lần chạy.</p>
+            <p>CPU process từ chênh lệch CPU time / wall time từng lượt, có warm-up. Compose mặc định giới hạn Gateway 1 vCPU.</p>
           </div>
           <div class="diag-card">
-            <h4>GATEWAY RAM USAGE <span class="badge pass">Passed</span></h4>
+            <h4>GATEWAY RAM USAGE <span class="badge info">Go runtime</span></h4>
             <div id="diag-ram" class="diag-value">Chưa đo / 1 GiB</div>
-            <p>Hiển thị RAM peak thực tế của Gateway trong lần chạy hiện tại.</p>
+            <p>Peak Go runtime (MemStats.Sys) quan sát qua /gateway/stats; không phải RSS hay peak riêng của lượt đo.</p>
           </div>
           <div class="diag-card">
             <h4>ERROR ANALYSIS <span class="badge info">End of Window</span></h4>
             <div id="diag-error" class="diag-value">Chưa đo</div>
-            <p>PASS khi ghi đủ 15.000 request lên h2c và nhận tối thiểu 12.000 HTTP 201 trong một giây.</p>
+            <p id="performance-acceptance">PASS đầy đủ cần attempted và sent đủ target, đồng thời success đạt ngưỡng trong cửa sổ đo.</p>
           </div>
         </div>
         <div id="performance-fields" class="performance-fields"></div>

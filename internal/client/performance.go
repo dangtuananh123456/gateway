@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -19,12 +20,13 @@ import (
 const (
 	defaultPerformanceRuns        = 3
 	defaultPerformanceDuration    = 1
-	defaultPerformanceWarmup      = 5
-	defaultPerformanceConnections = 15
-	defaultPerformanceStreams     = 32
+	defaultPerformanceWarmup      = 0
+	defaultPerformanceConnections = 3
+	defaultPerformanceStreams     = 64
+	defaultPerformancePause       = 2
 	defaultPerformanceTimeout     = 3
-	performanceTargetRequests     = 15000
-	performanceTargetSuccessful   = 12000
+	performanceTargetRequests     = 50000
+	performanceTargetSuccessful   = 35000
 	performanceWarmupRequests     = 1000
 	performanceWarmupSuccessful   = 800
 )
@@ -34,14 +36,16 @@ type performanceRunner interface {
 }
 
 type performanceReport struct {
-	Algorithm         string                     `json:"algorithm"`
-	DisplayName       string                     `json:"displayName"`
-	Route             string                     `json:"route"`
-	MeasuredAt        string                     `json:"measuredAt,omitempty"`
-	Environment       performanceEnvironment     `json:"environment"`
-	Measurements      []performanceMeasurement   `json:"measurements"`
-	ObservedResources performanceResourceSummary `json:"observedResources"`
-	Fields            map[string]string          `json:"fields"`
+	Algorithm             string                     `json:"algorithm"`
+	DisplayName           string                     `json:"displayName"`
+	Route                 string                     `json:"route"`
+	MeasuredAt            string                     `json:"measuredAt,omitempty"`
+	Environment           performanceEnvironment     `json:"environment"`
+	Measurements          []performanceMeasurement   `json:"measurements"`
+	ObservedResources     performanceResourceSummary `json:"observedResources"`
+	Fields                map[string]string          `json:"fields"`
+	HealthyBackendsBefore int                        `json:"healthyBackendsBefore"`
+	HealthyBackendsAfter  int                        `json:"healthyBackendsAfter"`
 }
 
 type performanceResourceSummary struct {
@@ -62,12 +66,15 @@ type performanceEnvironment struct {
 	ConcurrentStreams        int    `json:"concurrentStreams"`
 	RequestTimeoutSeconds    int    `json:"requestTimeoutSeconds"`
 	Protocol                 string `json:"protocol"`
+	PauseSeconds             int    `json:"pauseSeconds"`
+	GeneratorGoProcs         int    `json:"generatorGoProcs"`
 }
 
 type performanceMeasurement struct {
 	Run                   string            `json:"run"`
 	SuccessfulTPS         float64           `json:"successfulTps"`
 	LatencyP50Millis      float64           `json:"latencyP50Millis"`
+	LatencyP90Millis      float64           `json:"latencyP90Millis"`
 	LatencyP95Millis      float64           `json:"latencyP95Millis"`
 	LatencyP99Millis      float64           `json:"latencyP99Millis"`
 	FailedRequests        uint64            `json:"failedRequests"`
@@ -76,28 +83,36 @@ type performanceMeasurement struct {
 	SuccessfulRequests    uint64            `json:"successfulRequests,omitempty"`
 	ActualDurationSeconds float64           `json:"actualDurationSeconds,omitempty"`
 	TargetMet             bool              `json:"targetMet"`
+	SuccessTargetMet      bool              `json:"successTargetMet"`
 	Errors                map[string]uint64 `json:"errors,omitempty"`
+	StatusCodes           map[string]uint64 `json:"statusCodes,omitempty"`
 	FailedReason          string            `json:"failedReason,omitempty"`
 	Average               bool              `json:"average,omitempty"`
 }
 
 type performanceRunRequest struct {
-	Runs                  int `json:"runs"`
-	WarmupSeconds         int `json:"warmupSeconds"`
-	DurationSeconds       int `json:"durationSeconds"`
-	Connections           int `json:"connections"`
-	StreamsPerConnection  int `json:"streamsPerConnection"`
-	RequestTimeoutSeconds int `json:"requestTimeoutSeconds"`
+	Runs                     int `json:"runs"`
+	WarmupSeconds            int `json:"warmupSeconds"`
+	DurationSeconds          int `json:"durationSeconds"`
+	Connections              int `json:"connections"`
+	StreamsPerConnection     int `json:"streamsPerConnection"`
+	RequestTimeoutSeconds    int `json:"requestTimeoutSeconds"`
+	TargetRequests           int `json:"targetRequests"`
+	TargetSuccessfulRequests int `json:"targetSuccessfulRequests"`
+	PauseSeconds             int `json:"pauseSeconds"`
 }
 
 var performanceFieldExplanations = map[string]string{
-	"run":              "Lần đo độc lập; dòng Trung bình là trung bình cộng của các lần đo.",
-	"successfulTps":    "Số request nhận HTTP 201 thành công trong một giây; request lỗi không được tính vào TPS.",
+	"run":              "Lần đo độc lập. Dòng Trung bình là trung bình chỉ số từng lần; percentile trung bình không phải percentile gộp.",
+	"successfulTps":    "HTTP 201 hoàn thành trong cửa sổ đo / thời gian cửa sổ cấu hình; đã gồm thời gian chờ worker trong latency.",
 	"latencyP50Millis": "50% request thành công có latency nhỏ hơn hoặc bằng giá trị này.",
+	"latencyP90Millis": "90% request thành công có latency nhỏ hơn hoặc bằng giá trị này.",
 	"latencyP95Millis": "95% request thành công có latency nhỏ hơn hoặc bằng giá trị này.",
 	"latencyP99Millis": "99% request thành công có latency nhỏ hơn hoặc bằng giá trị này, dùng để quan sát tail latency.",
-	"failedRequests":   "Request lỗi (chủ yếu do in-flight streams bị timeout/cutoff khi kết thúc cửa sổ đo; 0 lỗi HTTP 5xx).",
-	"sentRequests":     "Số request đã được ghi thật lên kết nối h2c trong cửa sổ một giây.",
+	"failedRequests":   "Attempts không thành công trong cửa sổ, gồm timeout và job chưa kịp gửi. Xem error/status counters trong JSON.",
+	"sentRequests":     "Số request được xác nhận ghi lên connection h2c trong cửa sổ đo.",
+	"successTargetMet": "Đạt số HTTP 201 tối thiểu; vẫn có thể FAIL đầy đủ nếu chưa gửi hết request trước cutoff.",
+	"targetMet":        "PASS đầy đủ khi attempted và sent đều đủ target, đồng thời success đạt ngưỡng. Dòng TB chỉ PASS nếu mọi lần PASS.",
 }
 
 var performanceAlgorithms = map[string]struct {
@@ -111,12 +126,15 @@ var performanceAlgorithms = map[string]struct {
 
 func defaultPerformanceRequest() performanceRunRequest {
 	return performanceRunRequest{
-		Runs:                  defaultPerformanceRuns,
-		WarmupSeconds:         defaultPerformanceWarmup,
-		DurationSeconds:       defaultPerformanceDuration,
-		Connections:           defaultPerformanceConnections,
-		StreamsPerConnection:  defaultPerformanceStreams,
-		RequestTimeoutSeconds: defaultPerformanceTimeout,
+		Runs:                     defaultPerformanceRuns,
+		WarmupSeconds:            defaultPerformanceWarmup,
+		DurationSeconds:          defaultPerformanceDuration,
+		Connections:              defaultPerformanceConnections,
+		StreamsPerConnection:     defaultPerformanceStreams,
+		RequestTimeoutSeconds:    defaultPerformanceTimeout,
+		TargetRequests:           performanceTargetRequests,
+		TargetSuccessfulRequests: performanceTargetSuccessful,
+		PauseSeconds:             defaultPerformancePause,
 	}
 }
 
@@ -130,20 +148,22 @@ func performanceMetadata(path string, input performanceRunRequest) performanceRe
 			Runs:                     input.Runs,
 			WarmupSeconds:            input.WarmupSeconds,
 			DurationSeconds:          input.DurationSeconds,
-			TargetRequests:           performanceTargetRequests,
-			TargetSuccessfulRequests: performanceTargetSuccessful,
+			TargetRequests:           input.TargetRequests,
+			TargetSuccessfulRequests: input.TargetSuccessfulRequests,
 			Connections:              input.Connections,
 			StreamsPerConnection:     input.StreamsPerConnection,
 			ConcurrentStreams:        input.Connections * input.StreamsPerConnection,
 			RequestTimeoutSeconds:    input.RequestTimeoutSeconds,
 			Protocol:                 "HTTP/2 h2c",
+			PauseSeconds:             input.PauseSeconds,
+			GeneratorGoProcs:         runtime.GOMAXPROCS(0),
 		},
 		Measurements: []performanceMeasurement{},
 		ObservedResources: performanceResourceSummary{
 			GatewayCPURange: "Chưa đo",
 			GatewayRAMPeak:  "Chưa đo",
-			GatewayLimits:   "1.0 vCPU / 1 GiB RAM",
-			ErrorAnalysis:   "Target: gửi đủ 15.000 request và nhận tối thiểu 12.000 HTTP 201 trong một giây.",
+			GatewayLimits:   "Compose mặc định: 1 vCPU / 1 GiB RAM",
+			ErrorAnalysis:   fmt.Sprintf("Target: gửi đủ %d request và nhận tối thiểu %d HTTP 201 trong %ds.", input.TargetRequests, input.TargetSuccessfulRequests, input.DurationSeconds),
 		},
 		Fields: performanceFieldExplanations,
 	}
@@ -182,17 +202,17 @@ func (handler *Handler) servePerformance(writer http.ResponseWriter, request *ht
 		writeJSON(writer, http.StatusBadRequest, clientError{Error: err.Error()})
 		return
 	}
-	actualMode, err := handler.gatewayRoutingMode(request.Context())
+	actualState, err := handler.gatewayRoutingState(request.Context())
 	if err != nil {
 		writeJSON(writer, http.StatusBadGateway, clientError{Error: err.Error()})
 		return
 	}
 	expectedMode := performanceAlgorithms[request.URL.Path].mode
-	if actualMode != expectedMode {
+	if actualState.RoutingMode != expectedMode {
 		writeJSON(writer, http.StatusConflict, clientError{Error: fmt.Sprintf(
 			"selected route requires routing mode %q, but Gateway is running %q",
 			expectedMode,
-			actualMode,
+			actualState.RoutingMode,
 		)})
 		return
 	}
@@ -204,34 +224,47 @@ func (handler *Handler) servePerformance(writer http.ResponseWriter, request *ht
 		writeJSON(writer, http.StatusBadGateway, clientError{Error: err.Error()})
 		return
 	}
+	report.HealthyBackendsBefore = actualState.Count
+	if after, stateErr := handler.gatewayRoutingState(request.Context()); stateErr == nil {
+		report.HealthyBackendsAfter = after.Count
+		if after.Count != actualState.Count || after.RoutingMode != actualState.RoutingMode {
+			report.ObservedResources.ErrorAnalysis += " PDU count hoặc routing mode đã đổi trong bài đo; cần chạy lại để so sánh cùng topology."
+		}
+	} else {
+		report.HealthyBackendsAfter = -1
+		report.ObservedResources.ErrorAnalysis += " Không đọc được số PDU sau bài đo."
+	}
 	writeJSON(writer, http.StatusOK, report)
 }
 
-func (handler *Handler) gatewayRoutingMode(ctx context.Context) (constants.RoutingMode, error) {
+type performanceGatewayState struct {
+	RoutingMode constants.RoutingMode `json:"routingMode"`
+	Count       int                   `json:"count"`
+}
+
+func (handler *Handler) gatewayRoutingState(ctx context.Context) (performanceGatewayState, error) {
 	target := *handler.gatewayURL
 	target.Path = constants.GatewayBackendsPath
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
-		return "", fmt.Errorf("create Gateway mode request: %w", err)
+		return performanceGatewayState{}, fmt.Errorf("create Gateway mode request: %w", err)
 	}
 	response, err := handler.client.Do(request)
 	if err != nil {
-		return "", fmt.Errorf("read Gateway routing mode: %w", err)
+		return performanceGatewayState{}, fmt.Errorf("read Gateway routing mode: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("read Gateway routing mode: HTTP %d", response.StatusCode)
+		return performanceGatewayState{}, fmt.Errorf("read Gateway routing mode: HTTP %d", response.StatusCode)
 	}
-	var payload struct {
-		RoutingMode constants.RoutingMode `json:"routingMode"`
-	}
+	var payload performanceGatewayState
 	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&payload); err != nil {
-		return "", fmt.Errorf("decode Gateway routing mode: %w", err)
+		return performanceGatewayState{}, fmt.Errorf("decode Gateway routing mode: %w", err)
 	}
 	if _, found := performanceModePath(payload.RoutingMode); !found {
-		return "", fmt.Errorf("Gateway returned invalid routing mode %q", payload.RoutingMode)
+		return performanceGatewayState{}, fmt.Errorf("Gateway returned invalid routing mode %q", payload.RoutingMode)
 	}
-	return payload.RoutingMode, nil
+	return payload, nil
 }
 
 func performanceModePath(mode constants.RoutingMode) (string, bool) {
@@ -249,8 +282,14 @@ func (input performanceRunRequest) validate() error {
 		return errors.New("runs must be between 1 and 5")
 	case input.WarmupSeconds < 0 || input.WarmupSeconds > 30:
 		return errors.New("warmupSeconds must be between 0 and 30")
-	case input.DurationSeconds != 1:
-		return errors.New("durationSeconds must be exactly 1 for the 15,000 request acceptance test")
+	case input.DurationSeconds < 1 || input.DurationSeconds > 10:
+		return errors.New("durationSeconds must be between 1 and 10")
+	case input.TargetRequests < 1 || input.TargetRequests > 1000000:
+		return errors.New("targetRequests must be between 1 and 1000000")
+	case input.TargetSuccessfulRequests < 1 || input.TargetSuccessfulRequests > input.TargetRequests:
+		return errors.New("targetSuccessfulRequests must be between 1 and targetRequests")
+	case input.PauseSeconds < 0 || input.PauseSeconds > 10:
+		return errors.New("pauseSeconds must be between 0 and 10")
 	case input.Connections < 1 || input.Connections > 16:
 		return errors.New("connections must be between 1 and 16")
 	case input.StreamsPerConnection < 1 || input.StreamsPerConnection > constants.GatewayMaxConcurrentStreams:
@@ -293,8 +332,8 @@ func (handler *Handler) runPerformance(
 	target.Path = constants.CreateSMContextPath
 	cfg := loadtest.Config{
 		Target:                    target.String(),
-		RequestCount:              performanceTargetRequests,
-		MinimumSuccessfulRequests: performanceTargetSuccessful,
+		RequestCount:              uint64(input.TargetRequests),
+		MinimumSuccessfulRequests: uint64(input.TargetSuccessfulRequests),
 		Connections:               input.Connections,
 		StreamsPerConnection:      input.StreamsPerConnection,
 		RequestTimeout:            time.Duration(input.RequestTimeoutSeconds) * time.Second,
@@ -317,10 +356,19 @@ func (handler *Handler) runPerformance(
 	var peakMeasuredRAM float64 = 0
 
 	for run := 1; run <= input.Runs; run++ {
-		cfg.RequestCount = performanceTargetRequests
-		cfg.MinimumSuccessfulRequests = performanceTargetSuccessful
+		if run > 1 && input.PauseSeconds > 0 {
+			timer := time.NewTimer(time.Duration(input.PauseSeconds) * time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return performanceReport{}, ctx.Err()
+			case <-timer.C:
+			}
+		}
+		cfg.RequestCount = uint64(input.TargetRequests)
+		cfg.MinimumSuccessfulRequests = uint64(input.TargetSuccessfulRequests)
 		cfg.Duration = time.Duration(input.DurationSeconds) * time.Second
-		statsBefore, _ := handler.gatewayStats(ctx)
+		statsBefore, statsBeforeErr := handler.gatewayStats(ctx)
 		timeBefore := time.Now()
 
 		result, err := handler.performanceRunner.Run(ctx, cfg)
@@ -329,15 +377,15 @@ func (handler *Handler) runPerformance(
 		}
 
 		timeAfter := time.Now()
-		statsAfter, _ := handler.gatewayStats(ctx)
+		statsAfter, statsAfterErr := handler.gatewayStats(ctx)
 
-		// Calculate exact live CPU % during this run
+		// Estimate process CPU over the full runner call, including connection warmup.
 		var roundCPU float64
 		wallDelta := timeAfter.Sub(timeBefore)
-		if statsAfter.TotalCPUTimeMillis > statsBefore.TotalCPUTimeMillis && wallDelta > 0 {
+		if statsBeforeErr == nil && statsAfterErr == nil && statsAfter.TotalCPUTimeMillis > statsBefore.TotalCPUTimeMillis && wallDelta > 0 {
 			cpuDelta := time.Duration(statsAfter.TotalCPUTimeMillis-statsBefore.TotalCPUTimeMillis) * time.Millisecond
 			roundCPU = (float64(cpuDelta.Nanoseconds()) / float64(wallDelta.Nanoseconds())) * 100.0
-		} else if statsAfter.CPUPercent > 0 {
+		} else if statsBeforeErr == nil && statsAfterErr == nil && statsAfter.CPUPercent > 0 {
 			roundCPU = statsAfter.CPUPercent
 		}
 
@@ -362,6 +410,7 @@ func (handler *Handler) runPerformance(
 			Run:                   strconv.Itoa(run),
 			SuccessfulTPS:         result.SuccessfulTPS,
 			LatencyP50Millis:      result.LatencyP50Millis,
+			LatencyP90Millis:      result.LatencyP90Millis,
 			LatencyP95Millis:      result.LatencyP95Millis,
 			LatencyP99Millis:      result.LatencyP99Millis,
 			FailedRequests:        result.FailedRequests,
@@ -370,7 +419,9 @@ func (handler *Handler) runPerformance(
 			SuccessfulRequests:    result.SuccessfulRequests,
 			ActualDurationSeconds: result.DurationSeconds,
 			TargetMet:             result.TargetMet,
+			SuccessTargetMet:      result.SuccessfulRequests >= cfg.MinimumSuccessfulRequests,
 			Errors:                result.Errors,
+			StatusCodes:           result.StatusCodes,
 			FailedReason:          formatTargetResult(result),
 		})
 	}
@@ -381,22 +432,22 @@ func (handler *Handler) runPerformance(
 		report.ObservedResources.GatewayCPURange = fmt.Sprintf("%.2f%% – %.2f%%", minMeasuredCPU, maxMeasuredCPU)
 	}
 	if peakMeasuredRAM > 0 {
-		report.ObservedResources.GatewayRAMPeak = fmt.Sprintf("%.1f MiB / 1 GiB (%.1f%%)", peakMeasuredRAM, (peakMeasuredRAM/1024)*100)
+		report.ObservedResources.GatewayRAMPeak = fmt.Sprintf("%.1f MiB (Go runtime peak)", peakMeasuredRAM)
 	}
 	if len(report.Measurements) > 0 {
 		average := report.Measurements[len(report.Measurements)-1]
 		switch {
 		case average.TargetMet:
-			report.ObservedResources.ErrorAnalysis = "PASS: gửi đủ 15.000 request và nhận tối thiểu 12.000 HTTP 201 trong một giây."
-		case average.SentRequests < performanceTargetRequests:
+			report.ObservedResources.ErrorAnalysis = fmt.Sprintf("PASS mọi lần: gửi đủ %d request và nhận ít nhất %d HTTP 201 trong %ds.", input.TargetRequests, input.TargetSuccessfulRequests, input.DurationSeconds)
+		case average.SentRequests < uint64(input.TargetRequests):
 			report.ObservedResources.ErrorAnalysis = fmt.Sprintf(
-				"Chỉ ghi được trung bình %d/15.000 request lên h2c trong một giây.",
-				average.SentRequests,
+				"Chưa PASS đầy đủ: trung bình sent=%d/%d, success=%d/%d trong %ds. Đạt success không thay thế điều kiện gửi đủ.",
+				average.SentRequests, input.TargetRequests, average.SuccessfulRequests, input.TargetSuccessfulRequests, input.DurationSeconds,
 			)
 		default:
 			report.ObservedResources.ErrorAnalysis = fmt.Sprintf(
-				"Đã gửi đủ 15.000 request nhưng chỉ có trung bình %d/12.000 response thành công trong một giây.",
-				average.SuccessfulRequests,
+				"Có lần không PASS: trung bình sent=%d/%d, success=%d/%d trong %ds. Xem trạng thái từng lần.",
+				average.SentRequests, input.TargetRequests, average.SuccessfulRequests, input.TargetSuccessfulRequests, input.DurationSeconds,
 			)
 		}
 	}
@@ -425,7 +476,7 @@ func formatTargetResult(result loadtest.Result) string {
 }
 
 func averageMeasurement(measurements []performanceMeasurement) performanceMeasurement {
-	average := performanceMeasurement{Run: "Trung bình", Average: true, TargetMet: true}
+	average := performanceMeasurement{Run: "Trung bình", Average: true, TargetMet: true, SuccessTargetMet: true}
 	var failed float64
 	var total float64
 	var successful float64
@@ -436,10 +487,12 @@ func averageMeasurement(measurements []performanceMeasurement) performanceMeasur
 		sent += float64(measurement.SentRequests)
 		average.SuccessfulTPS += measurement.SuccessfulTPS
 		average.LatencyP50Millis += measurement.LatencyP50Millis
+		average.LatencyP90Millis += measurement.LatencyP90Millis
 		average.LatencyP95Millis += measurement.LatencyP95Millis
 		average.LatencyP99Millis += measurement.LatencyP99Millis
 		average.ActualDurationSeconds += measurement.ActualDurationSeconds
 		average.TargetMet = average.TargetMet && measurement.TargetMet
+		average.SuccessTargetMet = average.SuccessTargetMet && measurement.SuccessTargetMet
 		failed += float64(measurement.FailedRequests)
 	}
 	count := float64(len(measurements))
@@ -449,16 +502,13 @@ func averageMeasurement(measurements []performanceMeasurement) performanceMeasur
 		average.SentRequests = uint64(math.Round(sent / count))
 		average.SuccessfulTPS /= count
 		average.LatencyP50Millis /= count
+		average.LatencyP90Millis /= count
 		average.LatencyP95Millis /= count
 		average.LatencyP99Millis /= count
 		average.ActualDurationSeconds /= count
 		average.FailedRequests = uint64(math.Round(failed / count))
 		if !average.TargetMet {
-			average.FailedReason = fmt.Sprintf(
-				"Trung bình sent=%d/15.000, success=%d/12.000 trong 1s",
-				average.SentRequests,
-				average.SuccessfulRequests,
-			)
+			average.FailedReason = "Có ít nhất một lần chưa gửi đủ target hoặc chưa đạt ngưỡng success trong cửa sổ đo."
 		}
 	}
 	return average

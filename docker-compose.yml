@@ -52,6 +52,7 @@ services:
       CLIENT_ADDRESS: ":8090"
       CLIENT_GATEWAY_URL: http://gateway:8080
       CLIENT_REQUEST_TIMEOUT: 5s
+      GOMAXPROCS: ${CLIENT_GOMAXPROCS:-2}
     init: true
     read_only: true
     security_opt:
@@ -77,6 +78,10 @@ services:
       ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:-true}
       LOG_ENABLED: ${LOG_ENABLED:-true}
       PPROF_ADDRESS: ":6060"
+      # Match the one-vCPU quota and trade a bounded amount of RAM for less GC.
+      GOMAXPROCS: ${GATEWAY_GOMAXPROCS:-1}
+      GOGC: ${GATEWAY_GOGC:-800}
+      GOMEMLIMIT: ${GATEWAY_GOMEMLIMIT:-768MiB}
       GATEWAY_PUBLIC_URL: http://localhost:18080
       ROUTING_MODE: round_robin
       DISCOVERY_HOSTNAME: pdu-session

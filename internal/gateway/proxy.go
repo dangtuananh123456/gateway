@@ -171,8 +171,13 @@ func writeGatewayJSON(writer http.ResponseWriter, status int, payload model.Erro
 
 func copyHeaders(destination, source http.Header) {
 	for name, values := range source {
-		for _, value := range values {
-			destination.Add(name, value)
+		name = http.CanonicalHeaderKey(name)
+		// The response owns these slices until the downstream handler returns.
+		// Reusing them avoids an allocation per header on every proxied response.
+		if existing := destination[name]; len(existing) == 0 {
+			destination[name] = values
+		} else {
+			destination[name] = append(existing, values...)
 		}
 	}
 }
@@ -193,6 +198,6 @@ func removeHopByHopHeaders(header http.Header) {
 		"Transfer-Encoding",
 		"Upgrade",
 	} {
-		header.Del(name)
+		delete(header, name)
 	}
 }

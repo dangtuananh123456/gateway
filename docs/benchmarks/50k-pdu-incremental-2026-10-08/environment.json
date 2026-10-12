@@ -1,0 +1,14 @@
+{
+  "gatewayId": "d937a34fa959bfdb80bccf7f1d7a821b86afca1648ced91514d6470e0d0fe3a8",
+  "imageId": "sha256:321198cf5c7554400f884469c98d20c5fc09ebd0cab5a2308f0e8775a99b2d86",
+  "nanoCpus": 1000000000,
+  "memoryLimitBytes": 1073741824,
+  "memorySwapLimitBytes": 2147483648,
+  "runtime": [
+    "GOMAXPROCS=1",
+    "GOMEMLIMIT=768MiB",
+    "GOGC=800",
+    "ACCESS_LOG_ENABLED=false",
+    "LOG_ENABLED=false"
+  ]
+}

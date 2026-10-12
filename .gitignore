@@ -1,4 +1,6 @@
 *.md
+!docs/*.md
+!Explain.md
 *.env
 .agents
 coverage.out
@@ -6,3 +8,4 @@ coverage.out
 /config.yaml
 *.ps1
 *.xlsx
+*.docx

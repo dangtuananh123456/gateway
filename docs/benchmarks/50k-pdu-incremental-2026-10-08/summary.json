@@ -1,0 +1,50 @@
+[
+  {
+    "pduReplicas": 5,
+    "runs": 3,
+    "successfulTpsMean": 42596,
+    "successfulTpsMin": 42335,
+    "successfulTpsMax": 42955,
+    "sentRequestsMean": 42780.666666666664,
+    "failedRequestsMean": 7404,
+    "latencyP50MillisMean": 147.058,
+    "latencyP90MillisMean": 249.71866666666665,
+    "latencyP95MillisMean": 263.2383333333333,
+    "latencyP99MillisMean": 273.5023333333333,
+    "runsAtLeast35kSuccess": 3,
+    "targetMetRuns": 0,
+    "gatewayCPUPercentIncludingWarmupMean": 97.67893990332247
+  },
+  {
+    "pduReplicas": 6,
+    "runs": 3,
+    "successfulTpsMean": 41453.666666666664,
+    "successfulTpsMin": 39324,
+    "successfulTpsMax": 44126,
+    "sentRequestsMean": 41621.666666666664,
+    "failedRequestsMean": 8546.333333333334,
+    "latencyP50MillisMean": 155.78466666666668,
+    "latencyP90MillisMean": 271.76966666666664,
+    "latencyP95MillisMean": 282.5026666666667,
+    "latencyP99MillisMean": 292.43833333333333,
+    "runsAtLeast35kSuccess": 3,
+    "targetMetRuns": 0,
+    "gatewayCPUPercentIncludingWarmupMean": 97.16546465246309
+  },
+  {
+    "pduReplicas": 7,
+    "runs": 3,
+    "successfulTpsMean": 41692.333333333336,
+    "successfulTpsMin": 40796,
+    "successfulTpsMax": 42281,
+    "sentRequestsMean": 41883.333333333336,
+    "failedRequestsMean": 8307.666666666666,
+    "latencyP50MillisMean": 145.814,
+    "latencyP90MillisMean": 264.67066666666665,
+    "latencyP95MillisMean": 277.2083333333333,
+    "latencyP99MillisMean": 288.8643333333333,
+    "runsAtLeast35kSuccess": 3,
+    "targetMetRuns": 0,
+    "gatewayCPUPercentIncludingWarmupMean": 96.98731205266905
+  }
+]

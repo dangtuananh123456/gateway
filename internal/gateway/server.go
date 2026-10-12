@@ -58,7 +58,7 @@ func serve(
 
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.Serve(listener)
+		serveErrors <- httpServer.Serve(batchListener{listener})
 	}()
 
 	select {

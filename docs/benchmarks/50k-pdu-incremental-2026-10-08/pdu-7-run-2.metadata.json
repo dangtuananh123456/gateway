@@ -1,0 +1,35 @@
+{
+  "target": "http://localhost:18080/nsmf-pdusession/v1/sm-contexts",
+  "protocol": "h2c",
+  "targetRequests": 50000,
+  "targetSuccessfulRequests": 35000,
+  "targetDurationSeconds": 1,
+  "dispatchDurationSeconds": 0.999997217,
+  "targetMet": false,
+  "durationSeconds": 1.010773476,
+  "connections": 3,
+  "streamsPerConnection": 64,
+  "concurrentStreams": 192,
+  "totalRequests": 50000,
+  "sentRequests": 42189,
+  "successfulRequests": 42000,
+  "failedRequests": 8000,
+  "successfulTps": 42000,
+  "latencyP50Millis": 150.578,
+  "latencyP90Millis": 261.097,
+  "latencyP95Millis": 275.914,
+  "latencyP99Millis": 283.965,
+  "statusCodes": {
+    "201": 42000
+  },
+  "errors": {
+    "timeout": 8000
+  },
+  "pduReplicas": 7,
+  "run": 2,
+  "measuredAtUTC": "2026-10-08T11:32:45Z",
+  "exitCode": 1,
+  "gatewayCPUPercentIncludingWarmup": 97.5784317744562,
+  "gatewayMemoryCurrentBytes": 48496640,
+  "gatewayMemoryPeakLifetimeBytes": 63647744
+}

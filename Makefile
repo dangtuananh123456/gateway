@@ -2,6 +2,8 @@ GO ?= go
 COVERAGE_FILE ?= coverage.out
 COMPOSE ?= docker compose
 LOAD_TEST_ARGS ?= -target http://localhost:18080/nsmf-pdusession/v1/sm-contexts -requests 15000 -min-success 12000 -duration 1s -connections 15 -streams 32 -request-timeout 3s
+LOAD_TEST_35K_ARGS ?= -target http://localhost:18080/nsmf-pdusession/v1/sm-contexts -requests 40000 -min-success 35000 -duration 1s -connections 3 -streams 64 -request-timeout 3s
+LOAD_TEST_35K_GOMAXPROCS ?= 2
 PDU_REPLICAS ?= 3
 UI_BASE_URL ?= http://localhost:18090
 UI_EXPECTED_BACKENDS ?= $(PDU_REPLICAS)
@@ -46,6 +48,10 @@ client-run:
 load-test:
 	$(GO) run ./cmd/loadtest $(LOAD_TEST_ARGS)
 
+.PHONY: load-test-35k
+load-test-35k:
+	GOMAXPROCS=$(LOAD_TEST_35K_GOMAXPROCS) $(GO) run ./cmd/loadtest $(LOAD_TEST_35K_ARGS)
+
 docker-network-load-test:
 	$(COMPOSE) --profile loadtest run --build --rm --no-deps loadtest
 
@@ -62,7 +68,7 @@ docker-e2e-round-robin:
 	$(GO) run ./scripts/e2e-round-robin.go
 
 docker-ui-up:
-	$(COMPOSE) --profile tools up --build -d --scale pdu-session=$(PDU_REPLICAS)
+	ACCESS_LOG_ENABLED=false LOG_ENABLED=false $(COMPOSE) --profile tools up --build -d --scale pdu-session=$(PDU_REPLICAS)
 
 docker-ui-scale:
 	$(COMPOSE) --profile tools up -d --scale pdu-session=$(PDU_REPLICAS) --no-recreate
@@ -174,4 +180,3 @@ docker-down:
 # dns -> chạy pdu trên máy khác -> làm sao để dns resolver có thể lookup ra
 # hiện tại tại sao dns server tại sao nó hoạt động được 
 # chuyển http1.1 -> h2c
-

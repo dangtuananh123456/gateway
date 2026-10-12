@@ -109,7 +109,7 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		case constants.GatewayBackendsPath:
 			return &http.Response{
 				StatusCode: http.StatusOK,
-				Body:       io.NopCloser(strings.NewReader(`{"routingMode":"round_robin"}`)),
+				Body:       io.NopCloser(strings.NewReader(`{"routingMode":"round_robin","count":5}`)),
 				Header:     make(http.Header),
 			}, nil
 		case constants.GatewayStatsPath:
@@ -143,6 +143,7 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		return loadtest.Result{
 			SuccessfulTPS:    float64(call * 100),
 			LatencyP50Millis: float64(call * 10),
+			LatencyP90Millis: float64(call * 15),
 			LatencyP95Millis: float64(call * 20),
 			LatencyP99Millis: float64(call * 30),
 			FailedRequests:   uint64(call),
@@ -156,12 +157,12 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		t.Fatalf("decode metadata: %v", err)
 	}
 	if metadataResponse.Code != http.StatusOK || len(metadata.Measurements) != 0 ||
-		metadata.Environment.Runs != 3 || metadata.Environment.ConcurrentStreams != 480 ||
-		metadata.Environment.TargetRequests != 15000 || metadata.Environment.TargetSuccessfulRequests != 12000 {
+		metadata.Environment.Runs != 3 || metadata.Environment.ConcurrentStreams != 192 ||
+		metadata.Environment.TargetRequests != 50000 || metadata.Environment.TargetSuccessfulRequests != 35000 {
 		t.Errorf("metadata status=%d report=%+v", metadataResponse.Code, metadata)
 	}
 
-	input := `{"runs":2,"warmupSeconds":1,"durationSeconds":1,"connections":15,"streamsPerConnection":1000,"requestTimeoutSeconds":1}`
+	input := `{"runs":2,"warmupSeconds":1,"pauseSeconds":0,"durationSeconds":1,"connections":15,"streamsPerConnection":1000,"requestTimeoutSeconds":1}`
 	runResponse := httptest.NewRecorder()
 	handler.ServeHTTP(runResponse, httptest.NewRequest(
 		http.MethodPost,
@@ -177,7 +178,7 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 		t.Fatalf("live status=%d calls=%d report=%+v", runResponse.Code, runnerCalls.Load(), report)
 	}
 	average := report.Measurements[2]
-	if !average.Average || average.SuccessfulTPS != 250 || average.FailedRequests != 3 {
+	if !average.Average || average.SuccessfulTPS != 250 || average.FailedRequests != 3 || average.LatencyP90Millis != 37.5 || report.HealthyBackendsBefore != 5 || report.HealthyBackendsAfter != 5 {
 		t.Errorf("average = %+v", average)
 	}
 
@@ -189,6 +190,70 @@ func TestHandlerServesPerformanceReportsByAlgorithm(t *testing.T) {
 	))
 	if mismatch.Code != http.StatusConflict || !strings.Contains(mismatch.Body.String(), "round_robin") {
 		t.Errorf("mode mismatch status=%d body=%q", mismatch.Code, mismatch.Body.String())
+	}
+}
+
+func TestPerformanceUsesCustomWorkloadAndSeparatesSuccessFromFullTarget(t *testing.T) {
+	handler := newTestHandler(t, doerFunc(func(request *http.Request) (*http.Response, error) {
+		body := `{"routingMode":"round_robin","count":5}`
+		if request.URL.Path == constants.GatewayStatsPath {
+			body = `{"totalCpuTimeMillis":100,"ramUsageMiB":32}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	}))
+	var calls int
+	handler.performanceRunner = performanceRunnerFunc(func(_ context.Context, cfg loadtest.Config) (loadtest.Result, error) {
+		calls++
+		if cfg.RequestCount != 60000 || cfg.MinimumSuccessfulRequests != 45000 || cfg.Duration != 2*time.Second || cfg.Connections != 3 || cfg.StreamsPerConnection != 64 {
+			t.Fatalf("custom config did not reach runner: %+v", cfg)
+		}
+		success := uint64(50000 - calls*1000)
+		return loadtest.Result{
+			TargetRequests: 60000, TargetSuccessfulRequests: 45000, TargetDurationSeconds: 2,
+			TotalRequests: 60000, SentRequests: success + 100, SuccessfulRequests: success,
+			FailedRequests: 60000 - success, SuccessfulTPS: float64(success) / 2,
+			LatencyP90Millis: float64(180 + calls*20), Errors: map[string]uint64{"timeout": 60000 - success},
+			StatusCodes: map[string]uint64{"201": success},
+		}, nil
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, constants.ClientPerformanceRoundRobinPath,
+		strings.NewReader(`{"runs":2,"targetRequests":60000,"targetSuccessfulRequests":45000,"durationSeconds":2,"warmupSeconds":0,"pauseSeconds":0}`)))
+	var report performanceReport
+	if err := json.Unmarshal(response.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || calls != 2 || report.Environment.TargetRequests != 60000 || report.Environment.TargetSuccessfulRequests != 45000 || len(report.Measurements) != 3 {
+		t.Fatalf("report = %+v, status = %d, calls = %d", report, response.Code, calls)
+	}
+	for _, measurement := range report.Measurements {
+		if !measurement.SuccessTargetMet || measurement.TargetMet {
+			t.Fatalf("success/full target distinction lost: %+v", measurement)
+		}
+	}
+	average := report.Measurements[2]
+	if average.SuccessfulTPS != 24250 || average.LatencyP90Millis != 210 || report.Measurements[0].Errors["timeout"] != 11000 || report.Measurements[0].StatusCodes["201"] != 49000 {
+		t.Fatalf("measurements lost counters or p90: %+v", report.Measurements)
+	}
+	if !strings.Contains(report.ObservedResources.ErrorAnalysis, "60000") || !strings.Contains(report.ObservedResources.ErrorAnalysis, "45000") {
+		t.Fatalf("acceptance text uses stale workload: %s", report.ObservedResources.ErrorAnalysis)
+	}
+}
+
+func TestPerformanceRejectsInvalidWorkloadBeforeGatewayCall(t *testing.T) {
+	handler := newTestHandler(t, doerFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("invalid workload contacted Gateway")
+		return nil, errors.New("unexpected call")
+	}))
+	for _, input := range []string{
+		`{"targetRequests":0}`, `{"targetRequests":1000001}`, `{"targetSuccessfulRequests":50001}`,
+		`{"targetSuccessfulRequests":0}`, `{"durationSeconds":11}`, `{"pauseSeconds":-1}`,
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, constants.ClientPerformanceRoundRobinPath, strings.NewReader(input)))
+		if response.Code != http.StatusBadRequest {
+			t.Errorf("input %s = status %d, want 400", input, response.Code)
+		}
 	}
 }
 

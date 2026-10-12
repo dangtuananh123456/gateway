@@ -221,9 +221,9 @@ func TestRunnerDoesNotCountResponseCompletedAfterMeasurementWindow(t *testing.T)
 	if result.Errors["timeout"] != 1 || result.TargetMet {
 		t.Errorf("errors/target = %#v/%t, want timeout and failed target", result.Errors, result.TargetMet)
 	}
-	if result.LatencyP50Millis != 0 || result.LatencyP95Millis != 0 || result.LatencyP99Millis != 0 {
-		t.Errorf("late request contributed latency: p50/p95/p99=%f/%f/%f",
-			result.LatencyP50Millis, result.LatencyP95Millis, result.LatencyP99Millis)
+	if result.LatencyP50Millis != 0 || result.LatencyP90Millis != 0 || result.LatencyP95Millis != 0 || result.LatencyP99Millis != 0 {
+		t.Errorf("late request contributed latency: p50/p90/p95/p99=%f/%f/%f/%f",
+			result.LatencyP50Millis, result.LatencyP90Millis, result.LatencyP95Millis, result.LatencyP99Millis)
 	}
 }
 
@@ -270,9 +270,9 @@ func TestAggregateUsesConfiguredWindowForTPSAndSuccessfulLatencies(t *testing.T)
 	if result.SuccessfulTPS != 50 {
 		t.Errorf("successful TPS = %f, want 50 from 100 successes / configured 2s", result.SuccessfulTPS)
 	}
-	if result.LatencyP50Millis != 50 || result.LatencyP95Millis != 95 || result.LatencyP99Millis != 99 {
-		t.Errorf("latencies p50=%f p95=%f p99=%f, want 50/95/99ms",
-			result.LatencyP50Millis, result.LatencyP95Millis, result.LatencyP99Millis)
+	if result.LatencyP50Millis != 50 || result.LatencyP90Millis != 90 || result.LatencyP95Millis != 95 || result.LatencyP99Millis != 99 {
+		t.Errorf("latencies p50=%f p90=%f p95=%f p99=%f, want 50/90/95/99ms",
+			result.LatencyP50Millis, result.LatencyP90Millis, result.LatencyP95Millis, result.LatencyP99Millis)
 	}
 	if result.DispatchDurationSeconds != 0.1 {
 		t.Errorf("dispatch duration = %f, want 0.1s", result.DispatchDurationSeconds)
